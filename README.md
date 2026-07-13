@@ -16,13 +16,16 @@ Or a single skill by its path:
 npx skills add https://github.com/fm1randa/skills/tree/main/skills/code-review-pyramid
 ```
 
-The CLI symlinks skills in by default, so pulling updates is enough to update them.
+The CLI installs a *copy* into your agent's skills directory rather than symlinking, so re-run the command (or `npx skills update`) to pull in updates.
 
 ## Skills
 
 | Skill | What it does |
 | :--- | :--- |
 | [code-review-pyramid](skills/code-review-pyramid/) | Code review organized by Gunnar Morling's Code Review Pyramid — parallel per-layer agent fan-out, confidence-scored findings, severity capped by pyramid layer. |
+| [recon](skills/recon/) | Gathers context on an Agidesk task by fanning out one researcher agent per source (Agidesk, Slack, Google Drive, and Datadog for bugs) into a single context brief. |
+| [open-pr](skills/open-pr/) | Opens a pull request with a short, high-level description following a fixed convention — confirms the base branch and links the related task as Fixes/Closes/Addresses. |
+| [feedback](skills/feedback/) | Drafts a short, low-jargon findings message in Brazilian Portuguese as raw HTML, following a fixed template with hyperlinked PRs. |
 
 ## Local development
 
