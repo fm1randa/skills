@@ -4,7 +4,7 @@ This is a personal collection of **Agent Skills** (see [CONTEXT.md](CONTEXT.md) 
 
 ## Source of truth
 
-The repo working tree is canonical — author and commit skills here. The `skills` CLI installs a **copy** into the agent (it does not symlink to this working tree), so after editing or adding a skill, re-sync your machine with `npx skills add ~/Repositories/skills --agent claude-code -g -y` (or `npx skills update`). On other machines or for others, install from the published repo: `npx skills add fm1randa/skills`.
+The repo working tree is canonical — author and commit skills here. The `skills` CLI installs a **copy** into the agent (it does not symlink to this working tree), so after editing or adding a skill, re-sync your machine with `npx skills add ~/Repositories/ai/skills --agent claude-code -g -y` (`npx skills update` only refreshes skills from remote sources, not this local repo). On other machines or for others, install from the published repo: `npx skills add fm1randa/skills`.
 
 ## Authoring conventions
 

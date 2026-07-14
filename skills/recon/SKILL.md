@@ -16,7 +16,7 @@ Sweep every source for everything known about a task before you touch it. Recon 
 
 One researcher agent per source. Hand each agent the reference file for its source and let it work the recipe there.
 
-1. **Identify the task.** If the user did not give one, ask for it before doing anything else.
+1. **Identify the task.** Run recon on the task `$ARGUMENTS` (a task ID, URL, or short description). If `$ARGUMENTS` is blank and the user gave no task another way, ask for it before doing anything else.
 2. **Launch Agidesk recon first** — see [references/agidesk.md](references/agidesk.md). It is the spine of the recon: it establishes what the task is actually about, who is involved, the timeline, and the related tasks.
 3. **With the Agidesk findings in hand, launch Slack and Google Drive recon in parallel** — [references/slack.md](references/slack.md) and [references/google-drive.md](references/google-drive.md). Brief each agent richly with specifics the Agidesk agent surfaced: the task ID, key terms and product areas, the people named, the creation date, and any related task IDs. A generic brief finds nothing; a specific one finds the conversation.
 4. **If the task is a bug, also launch Datadog recon** — [references/datadog.md](references/datadog.md). Skip it otherwise.
