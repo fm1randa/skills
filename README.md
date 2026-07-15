@@ -26,7 +26,7 @@ The CLI installs a *copy* into your agent's skills directory rather than symlink
 | [recon](skills/recon/) | Gathers context on an Agidesk task by fanning out one researcher agent per source (Agidesk, Slack, Google Drive, and Datadog for bugs) into a single context brief. |
 | [open-pr](skills/open-pr/) | Opens a pull request with a short, high-level description following a fixed convention — confirms the base branch and links the related task as Fixes/Closes/Addresses. |
 | [feedback](skills/feedback/) | Drafts a short, low-jargon findings message in Brazilian Portuguese as raw HTML, following a fixed template with hyperlinked PRs. |
-| [output-language](skills/output-language/) | Locks output messages to a language passed as an argument (`/output-language <lang>`) instead of inferring it from the conversation; asks when none is given. |
+| [output-language](skills/output-language/) | Locks output messages to a language passed as an argument (`/output-language <lang>`) instead of inferring it from the conversation. A per-session hook re-injects the lock every turn so it survives loading other skills; `off` unlocks. Needs a [one-time hook setup](skills/output-language/references/setup.md). |
 
 ## Local development
 
