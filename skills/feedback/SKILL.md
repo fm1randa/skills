@@ -41,37 +41,62 @@ Hyperlink every PR. Note on PRs: we use branches as environments. `beta`, `devel
 
 Here you can and should use technical terms and code identifiers (wrap identifiers in `<code>`). The structure depends on the type resolved above.
 
+Section the note like Part 1: keep `<h4>` only on the "Nota técnica" title, and give each field its own `<h5>` heading followed by the content (a `<p>`, or a `<ul>` when the field is genuinely a list).
+
 ### Type `bug` (mandatory)
 
-```
-#### Nota técnica (diagnóstico e post-mortem)
-- Causa-raiz: <o mecanismo real, com os identificadores de código relevantes>
-- Correção: <o que foi mudado, em uma frase>
-- Como validamos: <loop de reprodução / repro pela tela / teste de regressão>
-- Post-mortem (por que passou e o que previne):
-    - <por que não foi pego antes, ex.: falha silenciosa, ambiguidade de contrato>
-    - <dívida estrutural / follow-up, com link para a tarefa quando houver>
+```html
+<h4>Nota técnica (diagnóstico e post-mortem)</h4>
+
+<h5>Causa-raiz</h5>
+<p><o mecanismo real, com os <code>identificadores</code> de código relevantes></p>
+
+<h5>Correção</h5>
+<p><o que foi mudado, em uma frase></p>
+
+<h5>Como validamos</h5>
+<p><loop de reprodução / repro pela tela / teste de regressão></p>
+
+<h5>Post-mortem (por que passou e o que previne)</h5>
+<ul>
+  <li><por que não foi pego antes, ex.: falha silenciosa, ambiguidade de contrato></li>
+  <li><dívida estrutural / follow-up, com link para a tarefa quando houver></li>
+</ul>
 ```
 
 ### Type `feature` (mandatory)
 
-```
-#### Nota técnica (construção)
-- O que construímos: <a abordagem técnica e os componentes principais, com identificadores>
-- Decisões e trade-offs: <por que foi feito assim e não de outro jeito>
-- Como validamos: <testes / repro pela tela / cenários cobertos>
-- O que ficou de fora / follow-ups: <recortes de escopo, dívida, próximos passos, com link quando houver>
+```html
+<h4>Nota técnica (construção)</h4>
+
+<h5>O que construímos</h5>
+<p><a abordagem técnica e os componentes principais, com <code>identificadores</code>></p>
+
+<h5>Decisões e trade-offs</h5>
+<p><por que foi feito assim e não de outro jeito></p>
+
+<h5>Como validamos</h5>
+<p><testes / repro pela tela / cenários cobertos></p>
+
+<h5>O que ficou de fora / follow-ups</h5>
+<p><recortes de escopo, dívida, próximos passos, com link quando houver></p>
 ```
 
 ### Type `geral` (optional)
 
 Use a flexible note only when there is real technical substance (refactor, hotfix). Adapt the fields to the case:
 
-```
-#### Nota técnica
-- O que mudou: <a mudança técnica e os identificadores relevantes>
-- Como validamos: <como confirmamos que segue funcionando>
-- Riscos / follow-ups: <o que observar, dívida, próximos passos>
+```html
+<h4>Nota técnica</h4>
+
+<h5>O que mudou</h5>
+<p><a mudança técnica e os <code>identificadores</code> relevantes></p>
+
+<h5>Como validamos</h5>
+<p><como confirmamos que segue funcionando></p>
+
+<h5>Riscos / follow-ups</h5>
+<p><o que observar, dívida, próximos passos></p>
 ```
 
 If it is a plain comment with no technical substance, omit the note entirely.
@@ -80,5 +105,5 @@ For `bug` and `feature`, if some item does not apply, say so explicitly instead 
 
 ## Output rules
 
-- Raw HTML only. Use `<h4>` for section titles, `<hr>` to separate Part 1 from Part 2, `<ul>`/`<li>` for lists, and `<code>` for identifiers.
-- Straight quotes only, and no em/en dashes — the text often passes through a humanizer, so keep it in that style from the start.
+- Raw HTML only. Use `<h4>` for the Part 1 section titles and the "Nota técnica" title, `<h5>` for the technical-note field titles, `<hr>` to separate Part 1 from Part 2, `<ul>`/`<li>` for lists, `<code>` for identifiers, and `<a>` for PR links.
+- Straight quotes only, and no em/en dashes — the text often passes through a humanizer, so keep it in that style from the start. This is about punctuation, not spelling: keep correct pt-BR accentuation (`á ã ç é í ó ú ê` ...); never strip accents.
