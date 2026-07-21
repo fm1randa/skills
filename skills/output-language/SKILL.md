@@ -2,7 +2,6 @@
 name: output-language
 description: Lock every reply to a language you pass (`/output-language <lang>`) instead of letting the conversation decide; `off` unlocks.
 argument-hint: [language | off]
-disable-model-invocation: true
 ---
 
 # Output language
