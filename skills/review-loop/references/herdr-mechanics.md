@@ -31,8 +31,8 @@ herdr pane close <pane-id>
 ## Traps, each one measured
 
 - **`agent prompt --wait` exceeds a foreground tool timeout.** The call moves to
-  the background and notifies you when it completes. Expect it. Do not read it
-  as a hang, and do not poll the pane while you wait.
+  the background and notifies you when it completes. Wait for that notification
+  and spend the time elsewhere; the pane tells you nothing new while it works.
 - **`agent read` returns the whole pane**, prompt echo included. The findings are
   at the tail, so read from the end. If the response is longer than the pane's
   scrollback can return — raising `--lines` reveals no more — the agent is on
@@ -40,24 +40,24 @@ herdr pane close <pane-id>
   write its full report to a temp file and reply with the path, and read the
   file.
 - **`$HERDR_PANE_ID` goes stale** after a session resume. Resolve the calling
-  pane with `herdr pane current --current` instead of trusting the variable.
+  pane with `herdr pane current --current` rather than trusting the variable.
 - **Split right from a wide pane, down from a narrow one.** Check with
   `herdr pane layout`. Repeated splits in one direction make columns nobody can
   read.
-- **Model and effort.** Sonnet 5 at medium effort. `--model sonnet` after the
-  `--` separator gives you both defaults; the pane footer confirms what actually
-  started. Check it — an effort flag can silently fail to take. Never switch the
-  model mid-loop.
-- **Close only panes this loop created.** Never close the caller's pane, and
-  never stop the Herdr server.
+- **Model and effort.** Sonnet 5 at medium effort, held constant for every round
+  of the loop. `--model sonnet` after the `--` separator gives you both defaults;
+  the pane footer confirms what actually started, so read it — an effort flag can
+  silently fail to take.
+- **Close only the panes this loop created**, and leave the Herdr server
+  running.
 - **Watch for a phantom input.** Text nobody sent has appeared in a reviewer
   pane's input twice. Read the pane's input line before you send Enter, and
   discard anything you did not write.
 
 ## Naming
 
-Name the reviewer for the round: `reviewer-r1`, `reviewer-r2`, and so on. Names
+Name the reviewer for its round: `reviewer-r1`, `reviewer-r2`, and so on. Names
 must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents, and a name
-is released when its agent exits. Reusing a name across rounds defeats the
-point of the loop and makes `herdr agent list` useless for telling you where you
-are.
+is released when its agent exits. A distinct name per round is what makes
+`herdr agent list` tell you where in the loop you are, and it keeps each
+reviewer as disposable as the loop needs.
