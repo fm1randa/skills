@@ -65,6 +65,6 @@ Report only — change no file.
   contents. A broken quote sends half a brief, and the reviewer answers it
   anyway.
 - **Ask for a file report only after a read comes back truncated**, never up
-  front. See [herdr-mechanics.md](herdr-mechanics.md).
+  front. See `herdr --skill`.
 - **State the problem, not your intended fix.** A brief that names the fix you
   have in mind gets that fix reviewed instead of the defect.

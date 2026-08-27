@@ -42,10 +42,8 @@ rounds, not one.
 
 Repeat this, with `<n>` counting up from 1:
 
-1. **Split a pane and start the reviewer** named `reviewer-r<n>`. Commands,
-   model, ID handling, and the traps live in
-   [references/herdr-mechanics.md](references/herdr-mechanics.md). Done when
-   `agent start` reports the agent ready.
+1. **Split a pane and start the reviewer** named `reviewer-r<n>`, per
+   [Herdr](#herdr) below. Done when `agent start` reports the agent ready.
 2. **Send the brief.** It runs the `code-review-pyramid` skill against the diff
    and asks for a report, not edits — a reviewer that writes races your own
    fixes and you lose both. Done when the wait settles.
@@ -63,6 +61,29 @@ Repeat this, with `<n>` counting up from 1:
 8. Carry every rejection into the next round's brief as a settled decision, then
    start round `<n>+1` in a new pane under a new name — unless the stop
    condition holds.
+
+## Herdr
+
+`herdr --skill` is the authority on pane splitting, `agent start`, `agent prompt
+--wait`, the `agent read` sources, ID handling, and the safety rules. Read it
+rather than deriving any of that here. What it cannot tell you:
+
+- **Name the reviewer for its round** — `reviewer-r1`, `reviewer-r2`. A distinct
+  name per round makes `herdr agent list` tell you where in the loop you are,
+  and keeps each reviewer as disposable as the loop needs.
+- **Sonnet 5 at medium effort**, held constant across rounds. `--model sonnet`
+  after the `--` separator gives you both defaults, and the pane footer confirms
+  what actually started — read it, because an effort flag can silently fail to
+  take.
+- **`agent prompt --wait` outlives a foreground tool timeout.** The call moves to
+  the background and notifies you when it completes. Wait for that notification
+  and spend the time elsewhere; the pane tells you nothing new while it works.
+- **`$HERDR_PANE_ID` goes stale** after a session resume, which is why
+  `herdr pane current --current` resolves the calling pane and the variable does
+  not.
+- **Watch for a phantom input.** Text nobody sent has appeared in a reviewer
+  pane's input twice. Read the input line before you send Enter, and discard
+  anything you did not write.
 
 ## Stop condition
 
