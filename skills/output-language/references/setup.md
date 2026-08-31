@@ -56,3 +56,12 @@ matcher `"Skill"` is what fires the reminder right after a skill loads.
   for the whole session and never leaks into another.
 - `/output-language off` removes it; `/clear` starts a new session id, which
   drops it.
+
+## Other agents
+
+The lock keys off a session id the agent puts in the environment, which is what
+makes this Claude Code specific. OpenCode does not export one: session identity
+reaches plugin hooks as `sessionID`, and a shell command sees it only if a
+plugin injects it through the `shell.env` hook. The evidence, including the
+`OPENCODE_SESSION_ID` proposal that was never merged, is in
+[research-opencode-session-env.md](research-opencode-session-env.md).
