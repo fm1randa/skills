@@ -52,6 +52,8 @@ A finding must clear the confidence bar first, then it's ranked by severity. The
 
 **Make a todo list** before you start so the phases don't get dropped on a big review.
 
+**One pass, or many?** This skill is one review pass. To review the same change repeatedly — a fresh reviewer each round, fixing between rounds until a round comes back clean — the caller is the [review-loop](../review-loop/SKILL.md) skill, which runs this one inside each round.
+
 **When to fan out vs. stay inline.** Spawning ~10 agents for a five-line change is slower and costlier than just reading it. Use the full parallel fan-out for non-trivial diffs and PRs. For a small or obviously simple diff — or when no subagent tool is available — run the whole thing inline in a single pass instead: same layers, same severity model, same confidence gate (self-assessed), just no delegation. Don't apologize for this; it's the right call on small changes.
 
 ## Step 1 — Detect what you're reviewing (auto-detect)
