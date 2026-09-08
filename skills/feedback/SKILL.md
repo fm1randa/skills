@@ -4,11 +4,33 @@ description: >-
   Drafts a short, low-jargon findings message in Brazilian Portuguese as raw
   HTML. Use when the user wants to summarize what changed and how a task was
   approached, or mentions "feedback" / a findings message.
-argument-hint: "[bug|feature|geral]"
-arguments: [type]
+argument-hint: "[bug|feature|geral] [short]"
+arguments: [type, variant]
 ---
 
 Draft a concise message in pt-BR explaining what changed and how we approached the task. Output raw HTML in two parts: a plain-language summary, then a technical note.
+
+## `short` variant
+
+When any argument is `short` (`/feedback short`, `/feedback feature short`), emit only Part 1, compressed, and skip Part 2 entirely. The type is still resolved, but it changes nothing in this variant.
+
+Shape: four `<p>` in this order, no headings and no section labels. Each is exactly one sentence.
+
+1. How it was before.
+2. What we changed.
+3. Where it applies.
+4. The PRs, hyperlinked, prefixed by their environment branch ("PR em staging:", "PRs em staging: ...; em main: ...").
+
+Sentence length rule: 15 to 20 words, hard cap 25. One idea per sentence, no mid-sentence asides. This is a legibility constraint, not a style preference: retention drops past 25 words.
+
+```html
+<p>O contato que abria o link da pesquisa pelo WhatsApp caía na tela de login do portal, sem conseguir responder.</p>
+<p>O link agora abre a pesquisa direto, sem sessão, e avisa quando ela já foi respondida, expirou ou é inválida.</p>
+<p>Vale para a tela pública de resposta da pesquisa, nos quatro idiomas, para quem chega pelo link do chat ou do e-mail.</p>
+<p>PR em staging: <a href="https://github.com/agidesk/agidesk/pull/4545">agidesk #4545</a>.</p>
+```
+
+Everything below describes the full variant.
 
 ## Resolve the feedback type first
 
