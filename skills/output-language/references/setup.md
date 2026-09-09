@@ -57,6 +57,8 @@ matcher `"Skill"` is what fires the reminder right after a skill loads.
 - `/output-language off` removes it; `/clear` starts a new session id, which
   drops it.
 
+Run the scripts' tests from the repo root: `bash skills/output-language/scripts/test.sh`.
+
 ## Other agents
 
 The lock keys off a session id the agent puts in the environment, which is what

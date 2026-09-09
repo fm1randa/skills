@@ -39,11 +39,39 @@ _Avoid_: using "plugin" to mean "Skill"
 **Marketplace**:
 A Claude-native registry of Plugins (`.claude-plugin/marketplace.json`). This repo does not use a Marketplace.
 
+## Output language
+
+**Language Profile**:
+A named preference for how the Agent writes replies — a natural-language instruction (language plus any style guide) and optional attachments the Agent reads once per session. Identified by a short id (`en-ste`, `pt-abnt`) and a two-letter badge.
+_Avoid_: language, locale, style
+
+**Default Profile**:
+The Language Profile every session follows when it has no Session Lock of its own.
+_Avoid_: global language, fallback
+
+**Session Lock**:
+A per-session choice of Language Profile (or ad hoc instruction) that overrides the Default Profile for that session only.
+_Avoid_: override, pin
+
+**Attachment**:
+A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session, and again when the session's profile changes.
+_Avoid_: reference, context file
+
+**Reminder hook**:
+The always-on hook that re-injects the effective Language Profile every turn and after every Skill load.
+_Avoid_: watcher
+
+**Aidiom**:
+The macOS menu bar app that edits the Default Profile, Session Locks and Language Profiles. It lives in its own repo and only edits the files the skill defines.
+_Avoid_: the app, langbar
+
 ## Relationships
 
 - A **Skill** contains exactly one **SKILL.md** and zero or more **Reference files**.
 - The **Skills CLI** installs a **Skill** into an **Agent** by copying the **Source of truth** into an **Installed copy** (re-sync after edits).
 - A **Plugin** may bundle **Skills**, but this repo distributes bare **Skills** — no **Plugin**, no **Marketplace**.
+- A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Seguir padrão").
+- **Aidiom** and `/output-language` write the same files; the **Reminder hook** reads them. The skill owns the file contract, **Aidiom** is a client of it.
 
 ## Example dialogue
 

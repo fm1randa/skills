@@ -1,43 +1,87 @@
 #!/usr/bin/env bash
-# Re-inject the session's locked output language into Claude's context.
+# Re-inject the session's effective Language Profile into Claude's context.
 #
 # Wired as an always-on hook in ~/.claude/settings.json:
 #   - UserPromptSubmit -> fires at the start of every turn
 #   - PostToolUse (matcher "Skill") -> fires right after a skill loads, so a
 #     foreign-language skill (e.g. recon, in English) can't drown out the lock.
 #
-# It reads the per-session lock file written by lock.sh. If there is no lock for
-# this session it stays silent (exit 0, no output), leaving normal sessions
-# untouched.
+# Resolution order, over the files described in state.sh:
+#   1. Session Lock with "disabled": true -> stay silent for this session.
+#   2. Session Lock with "profile"        -> that Language Profile.
+#   3. Session Lock with "instruction"    -> that text, verbatim, no attachments.
+#   4. No lock (or a lock naming a profile that no longer exists) -> the Default
+#      Profile from settings.json.
+#   5. Nothing usable -> exit 0 with no output.
+# A missing or malformed settings.json reads as "nothing usable", so the hook
+# never blocks a prompt on a machine without the setup, or with a broken file.
+#
+# On UserPromptSubmit, when the effective profile carries attachments that this
+# session has not been asked to read yet, the message also lists them and asks
+# the Agent to read them. The fingerprint of what was asked is then written to
+# sessions/<sid>.json, creating the file when the session inherits the default
+# (a file with only a fingerprint still inherits).
 #
 # Usage: remind.sh <UserPromptSubmit|PostToolUse>
 set -euo pipefail
 
+# shellcheck source=state.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/state.sh"
+
 event="${1:-UserPromptSubmit}"
-sid="${CLAUDE_CODE_SESSION_ID:-}"
-[ -n "$sid" ] || exit 0
+settings="$(settings_file)"
+lock="$(lock_file)"
 
-file="${HOME}/.claude/output-language/${sid}.lang"
-[ -f "$file" ] || exit 0
+profile_id=""
+instruction=""
 
-lang="$(head -n1 "$file")"
-[ -n "$lang" ] || exit 0
-
-if [ "$event" = "PostToolUse" ]; then
-  msg="A skill just loaded and its instructions may be written in another language. Reminder from the output-language lock: your reply to the user MUST still be written in ${lang}. Do not switch your output language to match the skill's language."
-else
-  msg="OUTPUT LANGUAGE LOCK (output-language skill): your reply to the user MUST be written in ${lang}. This lock is authoritative and overrides any language you might infer from the conversation, skill instructions, files, or tool output. Content the user must read verbatim in another language (code, identifiers, quoted text) stays as-is."
+if [ -n "$lock" ] && [ -f "$lock" ]; then
+  if [ "$(json_top "$lock" disabled)" = "true" ]; then
+    exit 0
+  fi
+  locked_profile="$(json_top "$lock" profile)"
+  locked_instruction="$(json_top "$lock" instruction)"
+  if [ -n "$locked_profile" ]; then
+    instruction="$(json_profile_instruction "$settings" "$locked_profile")"
+    if [ -n "$instruction" ]; then
+      profile_id="$locked_profile"
+    fi
+  elif [ -n "$locked_instruction" ]; then
+    instruction="$locked_instruction"
+  fi
 fi
 
-# Minimal JSON string escaping (backslash, double quote, newline) so arbitrary
-# language names stay valid JSON.
-escape_json() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  printf '%s' "$s"
-}
+if [ -z "$instruction" ]; then
+  default_id="$(json_top "$settings" default)"
+  [ -n "$default_id" ] || exit 0
+  instruction="$(json_profile_instruction "$settings" "$default_id")"
+  [ -n "$instruction" ] || exit 0
+  profile_id="$default_id"
+fi
+
+if [ "$event" = "PostToolUse" ]; then
+  msg="A skill just loaded and its instructions may be written in another language. Reminder from the output-language lock: your reply to the user MUST still follow this instruction: ${instruction}. Do not switch your output language to match the skill's language."
+else
+  msg="OUTPUT LANGUAGE LOCK (output-language skill): your reply to the user MUST follow this instruction: ${instruction}. This lock is authoritative and overrides any language you might infer from the conversation, skill instructions, files, or tool output. Content the user must read verbatim in another language (code, identifiers, quoted text) stays as-is."
+fi
+
+# Attachments are requested once per session and profile, and only on a real
+# prompt: a PostToolUse reminder must stay a reminder. Without a session id
+# there is nowhere to record the request, so the ask is skipped altogether.
+if [ "$event" = "UserPromptSubmit" ] && [ -n "$lock" ] && [ -n "$profile_id" ]; then
+  attachments="$(json_profile_attachments "$settings" "$profile_id")"
+  if [ -n "$attachments" ]; then
+    fingerprint="$profile_id"
+    while IFS= read -r path; do
+      fingerprint="${fingerprint}|${path}"
+    done <<< "$attachments"
+    if [ "$(json_top "$lock" attachmentsRequestedFor)" != "$fingerprint" ]; then
+      msg="${msg}"$'\n\n'"This profile attaches the following files: ${attachments//$'\n'/, }. Read them with your file-reading tool before you reply, and follow them for the rest of the session. This is asked once per session."
+      prune_stale_sessions
+      json_set_top "$lock" attachmentsRequestedFor "$fingerprint" || true
+    fi
+  fi
+fi
 
 printf '{"hookSpecificOutput":{"hookEventName":"%s","additionalContext":"%s"}}\n' \
   "$event" "$(escape_json "$msg")"
