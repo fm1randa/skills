@@ -21,7 +21,7 @@ A skills-compatible client (Claude Code, Cursor, Codex, Gemini CLI, and others) 
 _Avoid_: bot, model, assistant
 
 **Skills CLI**:
-The vercel-labs `skills` tool (`npx skills add`) that installs a Skill into an Agent, by symlink.
+The vercel-labs `skills` tool (`npx skills add`) that installs a Skill into an Agent, as a copy.
 _Avoid_: installer, package manager
 
 **Source of truth**:
@@ -42,7 +42,7 @@ A Claude-native registry of Plugins (`.claude-plugin/marketplace.json`). This re
 ## Output language
 
 **Language Profile**:
-A named preference for how the Agent writes replies — a natural-language instruction (language plus any style guide) and optional attachments the Agent reads once per session. Identified by a short id (`en-ste`, `pt-abnt`) and a two-letter badge.
+A named preference for how the Agent writes replies — a natural-language instruction (language plus any style guide) and optional attachments the Agent reads once per session. Identified by a short id (`en-ste`, `pt-abnt`) and a badge of two or three characters.
 _Avoid_: language, locale, style
 
 **Default Profile**:
@@ -50,11 +50,11 @@ The Language Profile every session follows when it has no Session Lock of its ow
 _Avoid_: global language, fallback
 
 **Session Lock**:
-A per-session choice of Language Profile (or ad hoc instruction) that overrides the Default Profile for that session only.
+A per-session file, under `sessions/` in the skill's state root (`~/.config/output-language`), that overrides the Default Profile for that session only. It holds one of three states: a Language Profile, an ad hoc instruction, or `disabled` (output-language off, the default ignored too). No file means the session follows the Default Profile — including a file that holds nothing but the attachment fingerprint.
 _Avoid_: override, pin
 
 **Attachment**:
-A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session, and again when the session's profile changes.
+A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session and attachment set, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool.
 _Avoid_: reference, context file
 
 **Reminder hook**:
@@ -70,7 +70,7 @@ _Avoid_: the app, langbar
 - A **Skill** contains exactly one **SKILL.md** and zero or more **Reference files**.
 - The **Skills CLI** installs a **Skill** into an **Agent** by copying the **Source of truth** into an **Installed copy** (re-sync after edits).
 - A **Plugin** may bundle **Skills**, but this repo distributes bare **Skills** — no **Plugin**, no **Marketplace**.
-- A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Follow default").
+- A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Follow default"), while a `disabled` lock silences the **Reminder hook** for that session.
 - **Aidiom** and `/output-language` write the same files; the **Reminder hook** reads them. The skill owns the file contract, **Aidiom** is a client of it.
 
 ## Example dialogue
