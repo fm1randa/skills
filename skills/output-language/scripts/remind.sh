@@ -42,9 +42,15 @@ if [ -n "$lock" ] && [ -f "$lock" ]; then
   locked_profile="$(json_top "$lock" profile)"
   locked_instruction="$(json_top "$lock" instruction)"
   if [ -n "$locked_profile" ]; then
-    instruction="$(json_profile_instruction "$settings" "$locked_profile")"
-    if [ -n "$instruction" ]; then
+    # A lock naming a profile that no longer exists falls through to the Default
+    # Profile below; a profile that exists but says nothing has nothing to
+    # inject, and must not silently borrow the default's instruction.
+    if json_profile_exists "$settings" "$locked_profile"; then
       profile_id="$locked_profile"
+      instruction="$(json_profile_instruction "$settings" "$locked_profile")"
+      if [ -z "$instruction" ]; then
+        exit 0
+      fi
     fi
   elif [ -n "$locked_instruction" ]; then
     instruction="$locked_instruction"
@@ -77,8 +83,8 @@ if [ "$event" = "UserPromptSubmit" ] && [ -n "$lock" ] && [ -n "$profile_id" ]; 
     done <<< "$attachments"
     if [ "$(json_top "$lock" attachmentsRequestedFor)" != "$fingerprint" ]; then
       msg="${msg}"$'\n\n'"This profile attaches the following files: ${attachments//$'\n'/, }. Read them with your file-reading tool before you reply, and follow them for the rest of the session. This is asked once per session."
-      prune_stale_sessions
       json_set_top "$lock" attachmentsRequestedFor "$fingerprint" || true
+      prune_stale_sessions
     fi
   fi
 fi

@@ -467,6 +467,61 @@ test_stale_sessions_are_pruned() {
   teardown
 }
 
+test_own_session_survives_the_prune() {
+  setup "the current session's own lock survives the prune, however old"
+  write_settings <<'JSON'
+{
+  "default": "pt-abnt",
+  "profiles": [
+    {
+      "id": "pt-abnt",
+      "short": "PT",
+      "label": "Portugues",
+      "instruction": "portugues brasileiro",
+      "attachments": ["/tmp/a-guide.pdf"]
+    }
+  ]
+}
+JSON
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)" "$lock_file"
+  # The prune runs on this turn, because the hook writes the fingerprint.
+  bash "$remind" UserPromptSubmit > /dev/null
+  assert_file "$lock_file"
+  assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile kept"
+  teardown
+}
+
+test_pinned_profile_without_instruction_is_silent() {
+  setup "a lock on a profile that says nothing injects nothing"
+  write_settings <<'JSON'
+{
+  "default": "en-ste",
+  "profiles": [
+    {
+      "id": "en-ste",
+      "short": "EN",
+      "label": "American English",
+      "instruction": "American English",
+      "attachments": []
+    },
+    { "id": "quiet", "short": "--", "label": "Quiet", "instruction": "", "attachments": [] }
+  ]
+}
+JSON
+  write_lock <<'JSON'
+{ "profile": "quiet" }
+JSON
+  local out status
+  out="$(bash "$remind" UserPromptSubmit 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code"
+  assert_empty "$out" "stdout"
+  teardown
+}
+
 test_json_escaping() {
   setup "quotes and backslashes in an instruction stay valid JSON"
   bash "$lock" 'say "hi\there" and stop' > /dev/null
