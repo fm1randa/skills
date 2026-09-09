@@ -106,8 +106,18 @@ setup() {
   lock_file="${root}/sessions/${CLAUDE_CODE_SESSION_ID}.json"
 }
 
+cleanup() {
+  if [ -n "${sandbox:-}" ]; then
+    rm -rf "$sandbox"
+  fi
+  return 0
+}
+
+# So an interrupted run does not leave a sandbox behind in the temp directory.
+trap cleanup EXIT INT TERM
+
 teardown() {
-  [ -n "$sandbox" ] && rm -rf "$sandbox"
+  cleanup
   sandbox=""
 }
 
@@ -520,6 +530,73 @@ JSON
   status=$?
   assert_eq 0 "$status" "exit code"
   assert_empty "$out" "stdout"
+  teardown
+}
+
+test_fingerprint_write_refuses_a_stale_base() {
+  setup "the fingerprint write refuses to merge stale content over a newer lock"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  local out
+  # Drive json_set_top with a snapshot taken before another writer lands, which
+  # is the interleaving remind.sh can hit between its read and its rename.
+  out="$(bash -c '
+    . "$1/state.sh"
+    snapshot="$(cat "$2")"
+    printf "%s\n" "{ \"instruction\": \"newer\" }" > "$2"
+    if json_set_top "$2" attachmentsRequestedFor stale "$snapshot"; then
+      echo "committed"
+    else
+      echo "refused"
+    fi
+  ' _ "$script_dir" "$lock_file")"
+  assert_eq "refused" "$out" "outcome"
+  assert_eq "newer" "$(json_get "$lock_file" instruction)" "the newer lock survives"
+  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  teardown
+}
+
+test_relock_during_a_turn_survives() {
+  setup "a relock landing mid-turn beats the fingerprint write"
+  write_settings <<'JSON'
+{
+  "default": "pt-abnt",
+  "profiles": [
+    { "id": "pt-abnt", "short": "PT", "label": "Portugues",
+      "instruction": "portugues brasileiro", "attachments": ["/tmp/a-guide.pdf"] }
+  ]
+}
+JSON
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  # A shim in front of the JSON backend replaces the lock file at the moment the
+  # fingerprint write is being prepared: a real interleaving, not a simulated one.
+  local tool real out msg
+  mkdir -p "${sandbox}/shim"
+  for tool in jq python3; do
+    real="$(command -v "$tool" 2> /dev/null || true)"
+    [ -n "$real" ] || continue
+    {
+      echo '#!/bin/sh'
+      echo 'case "$*" in'
+      echo '  *attachmentsRequestedFor*)'
+      printf "    printf '%%s\\\\n' '{ \"instruction\": \"relocked mid-turn\" }' > %s\n" "$lock_file"
+      echo '    ;;'
+      echo 'esac'
+      printf 'exec %s "$@"\n' "$real"
+    } > "${sandbox}/shim/${tool}"
+    chmod +x "${sandbox}/shim/${tool}"
+  done
+
+  out="$(env PATH="${sandbox}/shim:${PATH}" bash "$remind" UserPromptSubmit)"
+  msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "portugues brasileiro" "message"
+  assert_eq "relocked mid-turn" "$(json_get "$lock_file" instruction)" "the newer lock survives"
+  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_empty "$(json_get "$lock_file" profile)" "profile"
   teardown
 }
 

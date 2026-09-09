@@ -207,15 +207,24 @@ json_profile_attachments() {
   } | LC_ALL=C sort
 }
 
-# json_set_top <file> <key> <value>: merge one string key into the object in
-# <file>, creating the file (and its directory) when it is absent or unusable.
-# The write is atomic: a temp file in the same directory, then a rename.
+# json_set_top <file> <key> <value> <expected>: merge one string key into the
+# object <expected> and write the result to <file>, creating the file and its
+# directory as needed. The write is atomic: a temp file in the same directory,
+# then a rename.
+#
+# <expected> is the content the caller read earlier (empty for "the file did not
+# exist"), and the write is a compare-and-swap on it: if the file no longer holds
+# that content, someone else -- lock.sh in another turn, or Aidiom -- has written
+# a newer lock, and merging stale content over it would silently undo their
+# write. The function then leaves the file alone and fails, so the caller can
+# skip this turn; the next turn re-reads and merges onto what it finds.
 json_set_top() {
-  local file="$1" key="$2" value="$3" base='{}' tmp status=0
-  mkdir -p "$(dirname "$file")"
-  if [ -f "$file" ]; then
-    base="$(cat "$file")"
-  fi
+  local file="$1" key="$2" value="$3" expected="${4-}" base tmp current status=0 dir
+  base="$expected"
+  # An absent file merges into a fresh object.
+  [ -n "$base" ] || base='{}'
+  dir="${file%/*}"
+  [ "$dir" = "$file" ] || mkdir -p "$dir"
   tmp="${file}.tmp.$$"
   if [ "$json_backend" = "jq" ]; then
     printf '%s' "$base" | jq --arg k "$key" --arg v "$value" \
@@ -224,6 +233,16 @@ json_set_top() {
     printf '%s' "$base" | python3 -c "$py_set_top" "$key" "$value" > "$tmp" 2> /dev/null || status=$?
   fi
   if [ "$status" -ne 0 ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  # The compare, as late as possible: everything above only prepared a temp file,
+  # so this and the rename are all that a concurrent writer can interleave with.
+  current=""
+  if [ -f "$file" ]; then
+    current="$(cat "$file")"
+  fi
+  if [ "$current" != "$expected" ]; then
     rm -f "$tmp"
     return 1
   fi

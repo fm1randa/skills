@@ -46,6 +46,13 @@ lock="$(lock_file)"
 profile_id=""
 instruction=""
 
+# The lock as it stood when this turn resolved. The fingerprint write below is a
+# compare-and-swap on it, so a relock that lands mid-turn is never overwritten.
+lock_snapshot=""
+if [ -n "$lock" ] && [ -f "$lock" ]; then
+  lock_snapshot="$(cat "$lock")"
+fi
+
 if [ -n "$lock" ] && [ -f "$lock" ]; then
   if [ "$(json_top "$lock" disabled)" = "true" ]; then
     exit 0
@@ -93,7 +100,9 @@ if [ "$event" = "UserPromptSubmit" ] && [ -n "$lock" ] && [ -n "$profile_id" ]; 
     fingerprint="${profile_id}"$'\n'"${attachments}"
     if [ "$(json_top "$lock" attachmentsRequestedFor)" != "$fingerprint" ]; then
       msg="${msg}"$'\n\n'"This profile attaches the following files: ${attachments//$'\n'/, }. Read them with your file-reading tool before you reply, and follow them for the rest of the session. This is asked once per session."
-      json_set_top "$lock" attachmentsRequestedFor "$fingerprint" || true
+      # A refused write means a newer lock arrived during this turn: leave it
+      # alone. The next turn resolves against it and asks again if it must.
+      json_set_top "$lock" attachmentsRequestedFor "$fingerprint" "$lock_snapshot" || true
       prune_stale_sessions
     fi
   fi
