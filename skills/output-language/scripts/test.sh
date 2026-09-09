@@ -100,7 +100,8 @@ setup() {
   export HOME="${sandbox}/home"
   export XDG_CONFIG_HOME="${sandbox}/home/.config"
   export CLAUDE_CODE_SESSION_ID="session-under-test"
-  mkdir -p "$XDG_CONFIG_HOME" "${HOME}/.claude"
+  # empty-bin stands in for a PATH with neither jq nor python3 on it.
+  mkdir -p "$XDG_CONFIG_HOME" "${HOME}/.claude" "${sandbox}/empty-bin"
   root="${XDG_CONFIG_HOME}/output-language"
   lock_file="${root}/sessions/${CLAUDE_CODE_SESSION_ID}.json"
 }
@@ -270,7 +271,7 @@ JSON
   assert_contains "$msg" "/tmp/a-guide.pdf" "first message"
   assert_contains "$msg" "/tmp/b-guide.pdf" "first message"
   fingerprint="$(json_get "$lock_file" attachmentsRequestedFor)"
-  assert_eq "pt-abnt|/tmp/a-guide.pdf|/tmp/b-guide.pdf" "$fingerprint" "fingerprint"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf')" "$fingerprint" "fingerprint"
   assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile kept"
 
   second="$(bash "$remind" UserPromptSubmit)"
@@ -301,7 +302,7 @@ JSON
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a-guide.pdf" "message"
   assert_file "$lock_file"
-  assert_eq "pt-abnt|/tmp/a-guide.pdf" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
   assert_empty "$(json_get "$lock_file" profile)" "profile"
   assert_empty "$(json_get "$lock_file" instruction)" "instruction"
   teardown
@@ -314,7 +315,7 @@ test_fingerprint_reset_after_relock() {
 { "profile": "pt-abnt" }
 JSON
   bash "$remind" UserPromptSubmit > /dev/null
-  assert_eq "pt-abnt|/tmp/a-guide.pdf|/tmp/b-guide.pdf" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
 
   bash "$lock" pt-abnt > /dev/null
   assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint after relock"
@@ -519,6 +520,91 @@ JSON
   status=$?
   assert_eq 0 "$status" "exit code"
   assert_empty "$out" "stdout"
+  teardown
+}
+
+test_no_backend_fails_lock_loudly() {
+  setup "lock.sh fails loudly, and writes nothing, without a JSON backend"
+  seed_settings
+  local out status
+  # A forced backend is honored as given, so this stands in for a machine with
+  # neither jq nor python3.
+  out="$(OUTPUT_LANGUAGE_JSON_BACKEND=no-such-backend bash "$lock" pt-abnt 2>&1)"
+  status=$?
+  assert_eq 1 "$status" "exit code"
+  assert_contains "$out" "no usable JSON backend" "stderr"
+  assert_no_file "$lock_file"
+
+  # The same, arrived at honestly: an empty PATH hides both jq and python3.
+  out="$(env PATH="${sandbox}/empty-bin" /bin/bash "$lock" pt-abnt 2>&1)"
+  status=$?
+  assert_eq 1 "$status" "exit code with an empty PATH"
+  assert_contains "$out" "no usable JSON backend" "stderr with an empty PATH"
+  assert_no_file "$lock_file"
+  teardown
+}
+
+test_no_backend_keeps_the_hook_silent() {
+  setup "remind.sh stays silent, exit 0, without a JSON backend"
+  seed_settings
+  local out status
+  out="$(OUTPUT_LANGUAGE_JSON_BACKEND=no-such-backend bash "$remind" UserPromptSubmit 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code"
+  assert_empty "$out" "stdout"
+
+  out="$(env PATH="${sandbox}/empty-bin" /bin/bash "$remind" UserPromptSubmit 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code with an empty PATH"
+  assert_empty "$out" "stdout with an empty PATH"
+  teardown
+}
+
+test_relative_xdg_config_home_is_ignored() {
+  setup "a relative or empty XDG_CONFIG_HOME falls back to ~/.config"
+  # Seed the real fallback root, then point XDG_CONFIG_HOME at a relative path.
+  root="${HOME}/.config/output-language"
+  seed_settings
+  local msg value
+  for value in "relative/config" "" "."; do
+    msg="$(XDG_CONFIG_HOME="$value" bash "$remind" UserPromptSubmit \
+      | json_stdin hookSpecificOutput additionalContext)"
+    assert_contains "$msg" "American English" "message for XDG_CONFIG_HOME='${value}'"
+  done
+  # Nothing was created next to the working directory.
+  assert_no_file "${PWD}/relative"
+  teardown
+}
+
+test_fingerprint_separator_cannot_collide() {
+  setup "attachment sets that differ only in a '|' still ask again"
+  write_settings <<'JSON'
+{
+  "default": "pipe",
+  "profiles": [
+    { "id": "pipe", "short": "PI", "label": "Pipe", "instruction": "Pipe profile",
+      "attachments": ["/tmp/a|b.pdf"] }
+  ]
+}
+JSON
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "/tmp/a|b.pdf" "first message"
+  assert_eq "$(printf 'pipe\n/tmp/a|b.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+
+  # Same profile id, two paths whose naive join is the same string as above.
+  write_settings <<'JSON'
+{
+  "default": "pipe",
+  "profiles": [
+    { "id": "pipe", "short": "PI", "label": "Pipe", "instruction": "Pipe profile",
+      "attachments": ["/tmp/a", "b.pdf"] }
+  ]
+}
+JSON
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "/tmp/a" "second message asks again"
+  assert_eq "$(printf 'pipe\n/tmp/a\nb.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
   teardown
 }
 

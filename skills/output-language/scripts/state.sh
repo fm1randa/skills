@@ -5,7 +5,9 @@
 #
 # File contract (also written by Aidiom, the macOS menu bar app):
 #
-#   $XDG_CONFIG_HOME/output-language        (or ~/.config/output-language)
+#   $XDG_CONFIG_HOME/output-language        (or ~/.config/output-language; per
+#                                           the XDG spec a relative value of
+#                                           XDG_CONFIG_HOME counts as unset)
 #     settings.json
 #       { "default": "<profile id>",
 #         "profiles": [ { "id", "short", "label", "instruction",
@@ -16,15 +18,28 @@
 #       { "disabled": true }                output-language off for this session
 #       plus "attachmentsRequestedFor": "<fingerprint>", written by remind.sh
 #       once it has asked the Agent to read the profile's attachments. A file
-#       with only that key still means "follows the Default Profile".
+#       with only that key still means "follows the Default Profile". The
+#       fingerprint is the profile id and its sorted attachment paths joined by
+#       newlines, the one character a path cannot hold, so two different
+#       attachment sets can never produce the same fingerprint.
 #
 # JSON is parsed with jq when it is on PATH, else with python3; both backends
 # keep each read to one short-lived process, which matters because the hook runs
 # on every turn. Set OUTPUT_LANGUAGE_JSON_BACKEND to "jq" or "python3" to force
-# one (the test runner uses it to cover both).
+# one (the test runner uses it to cover both). Without a usable backend nothing
+# can be read or written: lock.sh then fails loudly and remind.sh stays silent,
+# so callers must check json_backend_available before anything else.
 
 state_root() {
-  printf '%s/output-language' "${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local base="${XDG_CONFIG_HOME:-}"
+  # A relative XDG_CONFIG_HOME would anchor the state to whatever directory the
+  # hook happens to run in, giving each project its own state root. The spec
+  # says to treat such a value as unset.
+  case "$base" in
+    /*) ;;
+    *) base="${HOME}/.config" ;;
+  esac
+  printf '%s/output-language' "$base"
 }
 
 settings_file() {
@@ -39,17 +54,34 @@ lock_file() {
 }
 
 case "${OUTPUT_LANGUAGE_JSON_BACKEND:-auto}" in
-  jq | python3)
-    json_backend="$OUTPUT_LANGUAGE_JSON_BACKEND"
-    ;;
-  *)
+  auto)
     if command -v jq > /dev/null 2>&1; then
       json_backend="jq"
     else
       json_backend="python3"
     fi
     ;;
+  *)
+    # Honored as given, even when it names nothing this machine has: an explicit
+    # choice that cannot run is an error to report, not one to paper over.
+    json_backend="$OUTPUT_LANGUAGE_JSON_BACKEND"
+    ;;
 esac
+
+# Succeeds when the chosen backend is one this script can drive and the command
+# is on PATH. Every read swallows its own errors to keep a malformed file from
+# blocking a prompt, which would otherwise turn "no backend at all" into "the
+# file says nothing" -- an empty read that reads like a missing profile.
+json_backend_name() {
+  printf '%s' "$json_backend"
+}
+
+json_backend_available() {
+  case "$json_backend" in
+    jq | python3) command -v "$json_backend" > /dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
 
 # Every python3 branch below reads a broken or unexpected file as an empty one,
 # which is what keeps a malformed settings.json from ever blocking a prompt.

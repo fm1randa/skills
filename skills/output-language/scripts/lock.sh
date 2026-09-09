@@ -24,12 +24,28 @@
 # new profile's attachments on the next turn.
 set -euo pipefail
 
+# Bash-only path handling, no dirname, so the checks below are what reports a
+# broken environment.
+self_dir="${BASH_SOURCE[0]}"
+case "$self_dir" in
+  */*) self_dir="${self_dir%/*}" ;;
+  *) self_dir="." ;;
+esac
 # shellcheck source=state.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/state.sh"
+. "${self_dir}/state.sh"
 
 if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
   echo "output-language: CLAUDE_CODE_SESSION_ID is not set; cannot persist the lock." >&2
   echo "output-language: your Claude Code may be too old to expose the session id." >&2
+  exit 1
+fi
+
+# Before any write: without a backend a profile id would look unknown and the
+# instruction would come out empty, which would write a lock that says nothing
+# while reporting success.
+if ! json_backend_available; then
+  echo "output-language: no usable JSON backend ('$(json_backend_name)'); cannot write the lock." >&2
+  echo "output-language: install jq or python3, or unset OUTPUT_LANGUAGE_JSON_BACKEND." >&2
   exit 1
 fi
 
