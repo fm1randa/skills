@@ -25,8 +25,19 @@
 # Usage: remind.sh <UserPromptSubmit|PostToolUse>
 set -euo pipefail
 
+# Bash-only path handling, no dirname: a hook must not depend on PATH holding
+# anything, and must stay silent rather than print "command not found".
+self_dir="${BASH_SOURCE[0]}"
+case "$self_dir" in
+  */*) self_dir="${self_dir%/*}" ;;
+  *) self_dir="." ;;
+esac
 # shellcheck source=state.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/state.sh"
+. "${self_dir}/state.sh"
+
+# Nothing can be read without a backend, and a hook must never block a prompt to
+# say so. lock.sh is where that misconfiguration gets reported.
+json_backend_available || exit 0
 
 event="${1:-UserPromptSubmit}"
 settings="$(settings_file)"
@@ -77,10 +88,9 @@ fi
 if [ "$event" = "UserPromptSubmit" ] && [ -n "$lock" ] && [ -n "$profile_id" ]; then
   attachments="$(json_profile_attachments "$settings" "$profile_id")"
   if [ -n "$attachments" ]; then
-    fingerprint="$profile_id"
-    while IFS= read -r path; do
-      fingerprint="${fingerprint}|${path}"
-    done <<< "$attachments"
+    # Newline-joined, because a path can hold any other character: joining with
+    # a punctuation mark would let ["a|b"] and ["a", "b"] fingerprint the same.
+    fingerprint="${profile_id}"$'\n'"${attachments}"
     if [ "$(json_top "$lock" attachmentsRequestedFor)" != "$fingerprint" ]; then
       msg="${msg}"$'\n\n'"This profile attaches the following files: ${attachments//$'\n'/, }. Read them with your file-reading tool before you reply, and follow them for the rest of the session. This is asked once per session."
       json_set_top "$lock" attachmentsRequestedFor "$fingerprint" || true
