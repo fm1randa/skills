@@ -522,6 +522,51 @@ JSON
   teardown
 }
 
+# Form feed, bell and vertical tab: control characters that JSON requires to be
+# escaped, and that the familiar tab/CR/LF cases miss.
+control_chars_text() {
+  printf 'ring \a, feed \f, climb \v, and stop'
+}
+
+test_control_characters_in_a_lock_instruction() {
+  setup "control characters in a lock instruction survive a round trip"
+  seed_settings
+  local text msg
+  text="$(control_chars_text)"
+  bash "$lock" "$text" > /dev/null
+  # json_get parses strictly, so it returns nothing if the file is invalid JSON.
+  assert_eq "$text" "$(json_get "$lock_file" instruction)" "instruction on disk"
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "$text" "message"
+  teardown
+}
+
+test_control_characters_in_a_profile_instruction() {
+  setup "control characters in a profile instruction stay escaped in the output"
+  # The fixture spells them as \u escapes, which is how a valid settings.json
+  # written by Aidiom or by hand carries a control character.
+  write_settings <<'JSON'
+{
+  "default": "ctl",
+  "profiles": [
+    {
+      "id": "ctl",
+      "short": "CT",
+      "label": "Controls",
+      "instruction": "ring \u0007, feed \u000c, climb \u000b, and stop",
+      "attachments": []
+    }
+  ]
+}
+JSON
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "$(control_chars_text)" "UserPromptSubmit message"
+  msg="$(bash "$remind" PostToolUse | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "$(control_chars_text)" "PostToolUse message"
+  teardown
+}
+
 test_json_escaping() {
   setup "quotes and backslashes in an instruction stay valid JSON"
   bash "$lock" 'say "hi\there" and stop' > /dev/null
