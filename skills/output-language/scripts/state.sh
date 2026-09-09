@@ -95,6 +95,11 @@ for path in found.get("attachments") or []:
         print(path)
 '
 
+py_escape='
+import json, sys
+sys.stdout.write(json.dumps(sys.stdin.read(), ensure_ascii=False))
+'
+
 py_set_top='
 import json, sys
 try:
@@ -209,13 +214,22 @@ prune_stale_sessions() {
     -mtime +7 -print0 2> /dev/null | xargs -0 rm -f 2> /dev/null || true
 }
 
-# Minimal JSON string escaping, so arbitrary instructions stay valid JSON.
+# Escape a string for use inside a JSON string literal, without the quotes.
+#
+# The backend does the escaping, because JSON requires every control character
+# in U+0000-U+001F to be escaped, not only the familiar tab, CR and LF: a form
+# feed or a vertical tab passed through raw makes the file (or the hook's own
+# output) invalid, and a strict parser then rejects the whole document.
 escape_json() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\t'/\\t}"
-  s="${s//$'\r'/\\r}"
-  s="${s//$'\n'/\\n}"
-  printf '%s' "$s"
+  local s="$1" quoted
+  if [ "$json_backend" = "jq" ]; then
+    quoted="$(printf '%s' "$s" | jq -Rs . 2> /dev/null)"
+  else
+    quoted="$(printf '%s' "$s" | python3 -c "$py_escape" 2> /dev/null)"
+  fi
+  # jq and json.dumps both wrap the value in double quotes; drop them, so the
+  # caller keeps building the surrounding JSON itself.
+  quoted="${quoted#\"}"
+  quoted="${quoted%\"}"
+  printf '%s' "$quoted"
 }
