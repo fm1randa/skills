@@ -70,7 +70,7 @@ _Avoid_: the app, langbar
 - A **Skill** contains exactly one **SKILL.md** and zero or more **Reference files**.
 - The **Skills CLI** installs a **Skill** into an **Agent** by copying the **Source of truth** into an **Installed copy** (re-sync after edits).
 - A **Plugin** may bundle **Skills**, but this repo distributes bare **Skills** — no **Plugin**, no **Marketplace**.
-- A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Seguir padrão").
+- A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Follow default").
 - **Aidiom** and `/output-language` write the same files; the **Reminder hook** reads them. The skill owns the file contract, **Aidiom** is a client of it.
 
 ## Example dialogue

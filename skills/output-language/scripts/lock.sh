@@ -37,7 +37,9 @@ file="$(lock_file)"
 mkdir -p "$(dirname "$file")"
 prune_stale_sessions
 
-# Write the whole file, so no key of an earlier state survives.
+# Write the whole file, so no key of an earlier state survives -- the fingerprint
+# included, which is why this builds the object instead of merging into it with
+# state.sh's json_set_top.
 write_lock() {
   local body="$1" tmp="${file}.tmp.$$"
   printf '{\n  %s\n}\n' "$body" > "$tmp"
@@ -56,7 +58,7 @@ case "$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')" in
     echo "output-language: this session now follows the default."
     ;;
   *)
-    if [ -n "$(json_profile_exists "$(settings_file)" "$argument")" ]; then
+    if json_profile_exists "$(settings_file)" "$argument"; then
       write_lock "\"profile\": \"$(escape_json "$argument")\""
       echo "output-language: this session now uses the '${argument}' profile."
     else

@@ -137,19 +137,20 @@ json_profile_instruction() {
   fi
 }
 
-# json_profile_exists <settings file> <profile id>: "yes" when the id is one of
-# the profiles in settings.json, nothing otherwise.
+# json_profile_exists <settings file> <profile id>: succeeds when the id is one
+# of the profiles in settings.json.
 json_profile_exists() {
-  local file="$1" id="$2"
-  [ -f "$file" ] || return 0
+  local file="$1" id="$2" found
+  [ -f "$file" ] || return 1
   if [ "$json_backend" = "jq" ]; then
-    jq -r --arg id "$id" '
+    found="$(jq -r --arg id "$id" '
       if ((.profiles // []) | map(select(.id == $id)) | length) > 0
       then "yes" else empty end
-    ' "$file" 2> /dev/null || true
+    ' "$file" 2> /dev/null || true)"
   else
-    python3 -c "$py_exists" "$file" "$id" 2> /dev/null || true
+    found="$(python3 -c "$py_exists" "$file" "$id" 2> /dev/null || true)"
   fi
+  [ -n "$found" ]
 }
 
 # json_profile_attachments <settings file> <profile id>: one path per line,
@@ -192,13 +193,20 @@ json_set_top() {
   mv "$tmp" "$file"
 }
 
-# Drop session files untouched for more than 7 days, so files for sessions that
-# ended long ago do not accumulate. Called on a write, never on a plain read.
+# Drop session files, and temp files left by an interrupted write, untouched for
+# more than 7 days, so files for sessions that ended long ago do not accumulate.
+# Called after a write, never on a plain read.
+#
+# The current session's own file is always kept: a session that runs for over a
+# week, or one Aidiom pinned days ago, must not lose its lock to housekeeping.
 prune_stale_sessions() {
-  local sessions
+  local sessions keep="${CLAUDE_CODE_SESSION_ID:-}"
   sessions="$(state_root)/sessions"
   [ -d "$sessions" ] || return 0
-  find "$sessions" -maxdepth 1 -name '*.json' -mtime +7 -delete 2> /dev/null || true
+  find "$sessions" -maxdepth 1 \
+    \( -name '*.json' -o -name '*.json.tmp.*' \) \
+    ! -name "${keep}.json" ! -name "${keep}.json.tmp.*" \
+    -mtime +7 -print0 2> /dev/null | xargs -0 rm -f 2> /dev/null || true
 }
 
 # Minimal JSON string escaping, so arbitrary instructions stay valid JSON.
