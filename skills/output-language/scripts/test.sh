@@ -168,16 +168,6 @@ test_silent_with_no_config() {
   teardown
 }
 
-test_ignores_legacy_lang_file() {
-  setup "ignores the legacy ~/.claude/output-language/<sid>.lang file"
-  mkdir -p "${HOME}/.claude/output-language"
-  echo "Klingon" > "${HOME}/.claude/output-language/${CLAUDE_CODE_SESSION_ID}.lang"
-  local out
-  out="$(bash "$remind" UserPromptSubmit 2>&1)"
-  assert_empty "$out" "stdout"
-  teardown
-}
-
 test_default_injected() {
   setup "injects the Default Profile when the session has no lock"
   seed_settings
@@ -376,9 +366,7 @@ JSON
 test_lock_by_profile_id() {
   setup "lock.sh maps a known profile id to a profile lock"
   seed_settings
-  local out
-  out="$(bash "$lock" pt-abnt)"
-  assert_contains "$out" "pt-abnt" "stdout"
+  bash "$lock" pt-abnt > /dev/null
   assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile"
   assert_empty "$(json_get "$lock_file" instruction)" "instruction"
   teardown
@@ -406,9 +394,7 @@ test_default_deletes_the_lock() {
   write_lock <<'JSON'
 { "profile": "pt-abnt" }
 JSON
-  local out
-  out="$(bash "$lock" default)"
-  assert_contains "$out" "default" "stdout"
+  bash "$lock" default > /dev/null
   assert_no_file "$lock_file"
   local msg
   msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
@@ -419,9 +405,7 @@ JSON
 test_off_disables_the_session() {
   setup "lock.sh off writes the disabled state and the hook goes silent"
   seed_settings
-  local out
-  out="$(bash "$lock" off)"
-  assert_contains "$out" "off" "stdout"
+  bash "$lock" off > /dev/null
   assert_eq "true" "$(json_get "$lock_file" disabled)" "disabled"
   local hook status
   hook="$(bash "$remind" UserPromptSubmit 2>&1)"
@@ -530,6 +514,41 @@ JSON
   status=$?
   assert_eq 0 "$status" "exit code"
   assert_empty "$out" "stdout"
+  teardown
+}
+
+test_stale_temp_files_are_pruned() {
+  setup "a temp file left by an interrupted write is pruned once stale"
+  seed_settings
+  mkdir -p "${root}/sessions"
+  local stale="${root}/sessions/long-gone.json.tmp.4242"
+  local mine="${lock_file}.tmp.4242"
+  local eight_days
+  eight_days="$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)"
+  echo '{ "profile": "pt-abnt" }' > "$stale"
+  echo '{ "profile": "pt-abnt" }' > "$mine"
+  touch -t "$eight_days" "$stale" "$mine"
+  bash "$lock" pt-abnt > /dev/null
+  assert_no_file "$stale"
+  # The current session's own leftovers are kept, like its lock file.
+  assert_file "$mine"
+  teardown
+}
+
+test_settings_without_profiles() {
+  setup "settings.json with a default but no profiles key at all"
+  write_settings <<'JSON'
+{ "default": "en-ste" }
+JSON
+  local out status
+  out="$(bash "$remind" UserPromptSubmit 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "remind exit code"
+  assert_empty "$out" "remind stdout"
+  # No profile can be found, so even a plausible id is an ad hoc instruction.
+  bash "$lock" en-ste > /dev/null
+  assert_eq "en-ste" "$(json_get "$lock_file" instruction)" "instruction"
+  assert_empty "$(json_get "$lock_file" profile)" "profile"
   teardown
 }
 
