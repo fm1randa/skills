@@ -1,6 +1,6 @@
 # Working in this repo
 
-This is a personal collection of **Agent Skills** (see [CONTEXT.md](CONTEXT.md) for the vocabulary). Skills live in `skills/<name>/`, each with a `SKILL.md` and optional `references/`, `scripts/`, `assets/`. They are distributed with the vercel-labs `skills` CLI — there is **no** Claude plugin or marketplace here (see [ADR 0001](docs/adr/0001-distribute-via-skills-cli-and-symlinks.md)).
+This is a personal collection of **Agent Skills** (see [GLOSSARY.md](GLOSSARY.md) for the vocabulary). Skills live in `skills/<name>/`, each with a `SKILL.md` and optional `references/`, `scripts/`, `assets/`. They are distributed with the vercel-labs `skills` CLI — there is **no** Claude plugin or marketplace here (see [ADR 0001](docs/adr/0001-distribute-via-skills-cli-and-symlinks.md)).
 
 ## Source of truth
 

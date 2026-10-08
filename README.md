@@ -41,7 +41,7 @@ cd ~/Repositories/skills
 npx skills add ~/Repositories/skills --agent claude-code -g -y
 ```
 
-Because the CLI copies rather than symlinking to the working tree, re-run that command (or `npx skills update`) after each edit to pick up changes. See [CLAUDE.md](CLAUDE.md) for authoring conventions and [CONTEXT.md](CONTEXT.md) for the vocabulary.
+Because the CLI copies rather than symlinking to the working tree, re-run that command (or `npx skills update`) after each edit to pick up changes. See [CLAUDE.md](CLAUDE.md) for authoring conventions and [GLOSSARY.md](GLOSSARY.md) for the vocabulary.
 
 ## Credits
 
