@@ -890,9 +890,29 @@ test_pause_refuses_a_malformed_settings() {
     status=$?
     assert_eq 1 "$status" "exit code for '${body}'"
     assert_contains "$out" "nothing changed" "stderr for '${body}'"
+    assert_contains "$out" "not a valid JSON object" "stderr for '${body}'"
+    assert_not_contains "$out" "changed while" "stderr for '${body}'"
     assert_eq "$body" "$(cat "${root}/settings.json")" "settings.json for '${body}'"
     assert_eq "settings.json" "$(ls "$root")" "files in the state root for '${body}'"
   done
+  teardown
+}
+
+test_pause_reports_an_unreadable_settings() {
+  setup "pause says an unreadable settings.json cannot be read, and leaves it alone"
+  seed_settings
+  local before out status
+  before="$(cat "${root}/settings.json")"
+  chmod 000 "${root}/settings.json"
+  out="$(bash "$lock" pause 2>&1)"
+  status=$?
+  chmod 600 "${root}/settings.json"
+  assert_eq 1 "$status" "exit code"
+  assert_contains "$out" "cannot be read" "stderr"
+  assert_not_contains "$out" "valid JSON" "stderr"
+  assert_not_contains "$out" "changed while" "stderr"
+  assert_eq "$before" "$(cat "${root}/settings.json")" "settings.json"
+  assert_eq "settings.json" "$(ls "$root")" "files in the state root"
   teardown
 }
 

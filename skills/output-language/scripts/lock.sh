@@ -51,6 +51,20 @@ fi
 argument="${1:-}"
 word="$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')"
 
+# Edit the Pause in settings.json, or exit with the message that matches why it
+# could not be edited.
+edit_pause() {
+  local settings="$1" op="$2" status=0
+  json_edit_top "$settings" disabled "$op" || status=$?
+  case "$status" in
+    0) return 0 ;;
+    1) echo "output-language: ${settings} cannot be read; nothing changed." >&2 ;;
+    2) echo "output-language: ${settings} is not a valid JSON object; nothing changed." >&2 ;;
+    *) echo "output-language: ${settings} changed while it was being written; nothing changed." >&2 ;;
+  esac
+  exit 1
+}
+
 # The Pause lives in settings.json, not in a Session Lock, so it needs no
 # session id and touches no session file: every session keeps what it held.
 case "$word" in
@@ -66,10 +80,7 @@ case "$word" in
       echo "output-language: already paused in every session. Run '/output-language resume' to put each one back."
       exit 0
     fi
-    if ! json_edit_top "$settings" disabled true; then
-      echo "output-language: ${settings} is not a valid JSON object, or changed while it was being written; nothing changed." >&2
-      exit 1
-    fi
+    edit_pause "$settings" true
     echo "output-language: paused in every session. Run '/output-language resume' to put each one back."
     exit 0
     ;;
@@ -81,10 +92,7 @@ case "$word" in
       echo "output-language: there is no Pause to resume; nothing changed."
       exit 0
     fi
-    if ! json_edit_top "$settings" disabled absent; then
-      echo "output-language: ${settings} changed while it was being written; nothing changed." >&2
-      exit 1
-    fi
+    edit_pause "$settings" absent
     echo "output-language: resumed; every session is back where it was."
     exit 0
     ;;

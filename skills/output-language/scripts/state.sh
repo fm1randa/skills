@@ -276,12 +276,16 @@ sys.stdout.write("\n")
 # missing, malformed or not an object, because settings.json holds the user's
 # profiles and must never be replaced by an object built from nothing.
 #
+# The exit code tells the caller which message is true: 1 when the file is
+# missing or cannot be read, 2 when it is not a JSON object, 3 when it changed
+# while it was being written.
+#
 # The write is atomic (a temp file, then a rename) and a compare-and-swap on
 # what was read, so an edit Aidiom saves in between is never overwritten.
 json_edit_top() {
   local file="$1" key="$2" op="$3" before tmp current status=0
   [ -f "$file" ] || return 1
-  before="$(cat "$file")"
+  before="$(cat "$file" 2> /dev/null)" || return 1
   tmp="${file}.tmp.$$"
   if [ "$json_backend" = "jq" ]; then
     # -e: an empty file yields no value at all, which must fail, not write "".
@@ -295,12 +299,12 @@ json_edit_top() {
   fi
   if [ "$status" -ne 0 ]; then
     rm -f "$tmp"
-    return 1
+    return 2
   fi
   current="$(cat "$file" 2> /dev/null || true)"
   if [ "$current" != "$before" ]; then
     rm -f "$tmp"
-    return 1
+    return 3
   fi
   mv "$tmp" "$file"
 }
