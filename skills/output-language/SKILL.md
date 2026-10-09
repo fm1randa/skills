@@ -60,4 +60,4 @@ bash "$HOME/.claude/skills/output-language/scripts/lock.sh" pause
 bash "$HOME/.claude/skills/output-language/scripts/lock.sh" resume
 ```
 
-`pause` is not a stronger `off`. It writes `"disabled": true` at the top of `settings.json`, so the hook goes silent in every session, including those that start later. No session's lock is touched, so `resume` puts each session back on its own profile. Neither command needs `CLAUDE_CODE_SESSION_ID`. `pause` fails when `settings.json` is missing, unreadable or malformed: tell the user, and do not create or fix the file yourself.
+`pause` is not a stronger `off`. It creates the file `paused` in the state root (`~/.config/output-language`), so the hook goes silent in every session, including those that start later; `resume` removes it. No session's lock is touched, so `resume` puts each session back on its own profile. Neither command needs `CLAUDE_CODE_SESSION_ID`, and neither reads or writes `settings.json`.
