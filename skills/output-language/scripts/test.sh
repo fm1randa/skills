@@ -868,6 +868,49 @@ test_pause_writes_the_key_and_keeps_the_rest() {
   teardown
 }
 
+test_pause_refuses_without_settings() {
+  setup "pause refuses, and creates nothing, when settings.json is missing"
+  local out status
+  out="$(bash "$lock" pause 2>&1)"
+  status=$?
+  assert_eq 1 "$status" "exit code"
+  assert_contains "$out" "settings.json" "stderr"
+  assert_no_file "${root}/settings.json"
+  teardown
+}
+
+test_pause_refuses_a_malformed_settings() {
+  setup "pause refuses a malformed settings.json and leaves it byte-for-byte"
+  local body out status
+  # Truncated JSON, an empty file, and valid JSON that is not an object.
+  for body in '{ "default": "en-ste", "profiles": [' '' '["en-ste"]'; do
+    mkdir -p "$root"
+    printf '%s' "$body" > "${root}/settings.json"
+    out="$(bash "$lock" pause 2>&1)"
+    status=$?
+    assert_eq 1 "$status" "exit code for '${body}'"
+    assert_contains "$out" "nothing changed" "stderr for '${body}'"
+    assert_eq "$body" "$(cat "${root}/settings.json")" "settings.json for '${body}'"
+    assert_eq "settings.json" "$(ls "$root")" "files in the state root for '${body}'"
+  done
+  teardown
+}
+
+test_pausing_twice_is_harmless() {
+  setup "pausing twice keeps one Pause and every other key"
+  seed_settings
+  local expected out status
+  expected="$(settings_without_pause)"
+  bash "$lock" pause > /dev/null
+  out="$(bash "$lock" pausar 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code"
+  assert_contains "$out" "paused" "output"
+  assert_eq "true" "$(json_get "${root}/settings.json" disabled)" "disabled"
+  assert_eq "$expected" "$(settings_without_pause)" "other keys"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is
