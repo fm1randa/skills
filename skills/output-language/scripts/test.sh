@@ -916,6 +916,24 @@ test_pause_reports_an_unreadable_settings() {
   teardown
 }
 
+test_edit_top_refuses_an_unknown_mode() {
+  setup "json_edit_top refuses a mode other than set or delete, and writes nothing"
+  seed_settings
+  local before out status mode
+  before="$(cat "${root}/settings.json")"
+  # Called the way lock.sh calls it: state.sh sourced, the file and key given.
+  for mode in true absent "" Delete; do
+    out="$(bash -c '. "$1"; json_edit_top "$2" disabled "$3"' _ \
+      "${script_dir}/state.sh" "${root}/settings.json" "$mode" 2>&1)"
+    status=$?
+    assert_eq 4 "$status" "exit code for '${mode}'"
+    assert_contains "$out" "mode" "stderr for '${mode}'"
+    assert_eq "$before" "$(cat "${root}/settings.json")" "settings.json for '${mode}'"
+  done
+  assert_eq "settings.json" "$(ls "$root")" "files in the state root"
+  teardown
+}
+
 test_pausing_twice_is_harmless() {
   setup "pausing twice keeps one Pause and every other key"
   seed_settings

@@ -60,7 +60,8 @@ edit_pause() {
     0) return 0 ;;
     1) echo "output-language: ${settings} cannot be read; nothing changed." >&2 ;;
     2) echo "output-language: ${settings} is not a valid JSON object; nothing changed." >&2 ;;
-    *) echo "output-language: ${settings} changed while it was being written; nothing changed." >&2 ;;
+    3) echo "output-language: ${settings} changed while it was being written; nothing changed." >&2 ;;
+    *) echo "output-language: ${settings} could not be edited; nothing changed." >&2 ;;
   esac
   exit 1
 }
@@ -80,7 +81,7 @@ case "$word" in
       echo "output-language: already paused in every session. Run '/output-language resume' to put each one back."
       exit 0
     fi
-    edit_pause "$settings" true
+    edit_pause "$settings" set
     echo "output-language: paused in every session. Run '/output-language resume' to put each one back."
     exit 0
     ;;
@@ -92,7 +93,7 @@ case "$word" in
       echo "output-language: there is no Pause to resume; nothing changed."
       exit 0
     fi
-    edit_pause "$settings" absent
+    edit_pause "$settings" delete
     echo "output-language: resumed; every session is back where it was."
     exit 0
     ;;
