@@ -34,18 +34,39 @@ esac
 # shellcheck source=state.sh
 . "${self_dir}/state.sh"
 
-if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-  echo "output-language: CLAUDE_CODE_SESSION_ID is not set; cannot persist the lock." >&2
-  echo "output-language: your Claude Code may be too old to expose the session id." >&2
+# Before anything else: without a backend a profile id would look unknown and
+# the instruction would come out empty, which would write a lock that says
+# nothing while reporting success; and the Pause could not be written at all.
+if ! json_backend_available; then
+  echo "output-language: no usable JSON backend ('$(json_backend_name)'); cannot write any state." >&2
+  echo "output-language: install jq or python3, or unset OUTPUT_LANGUAGE_JSON_BACKEND." >&2
   exit 1
 fi
 
-# Before any write: without a backend a profile id would look unknown and the
-# instruction would come out empty, which would write a lock that says nothing
-# while reporting success.
-if ! json_backend_available; then
-  echo "output-language: no usable JSON backend ('$(json_backend_name)'); cannot write the lock." >&2
-  echo "output-language: install jq or python3, or unset OUTPUT_LANGUAGE_JSON_BACKEND." >&2
+argument="${1:-}"
+word="$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')"
+
+# The Pause lives in settings.json, not in a Session Lock, so it needs no
+# session id and touches no session file: every session keeps what it held.
+case "$word" in
+  pause | pausar)
+    settings="$(settings_file)"
+    if [ ! -f "$settings" ]; then
+      echo "output-language: there is no ${settings} to pause; nothing changed." >&2
+      exit 1
+    fi
+    if ! json_edit_top "$settings" disabled true; then
+      echo "output-language: ${settings} is not a valid JSON object, or changed while it was being written; nothing changed." >&2
+      exit 1
+    fi
+    echo "output-language: paused in every session. Run '/output-language resume' to put each one back."
+    exit 0
+    ;;
+esac
+
+if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  echo "output-language: CLAUDE_CODE_SESSION_ID is not set; cannot persist the lock." >&2
+  echo "output-language: your Claude Code may be too old to expose the session id." >&2
   exit 1
 fi
 
@@ -62,9 +83,7 @@ write_lock() {
   mv "$tmp" "$file"
 }
 
-argument="${1:-}"
-
-case "$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')" in
+case "$word" in
   ""|off|clear|none|unlock|unlocked|desativar|desligar|destravar)
     write_lock '"disabled": true'
     echo "output-language: off for this session (the Default Profile is ignored too)."

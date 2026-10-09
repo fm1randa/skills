@@ -249,6 +249,57 @@ json_set_top() {
   mv "$tmp" "$file"
 }
 
+py_edit_top='
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+if not isinstance(data, dict):
+    sys.exit(1)
+if sys.argv[2] == "true":
+    data[sys.argv[1]] = True
+else:
+    data.pop(sys.argv[1], None)
+json.dump(data, sys.stdout, indent=2, ensure_ascii=False)
+sys.stdout.write("\n")
+'
+
+# json_edit_top <file> <key> <true|absent>: set one top-level key to true, or
+# remove it, keeping every other key. Unlike json_set_top, this one is strict:
+# it fails, and leaves the file byte-for-byte as it was, when the file is
+# missing, malformed or not an object, because settings.json holds the user's
+# profiles and must never be replaced by an object built from nothing.
+#
+# The write is atomic (a temp file, then a rename) and a compare-and-swap on
+# what was read, so an edit Aidiom saves in between is never overwritten.
+json_edit_top() {
+  local file="$1" key="$2" op="$3" before tmp current status=0
+  [ -f "$file" ] || return 1
+  before="$(cat "$file")"
+  tmp="${file}.tmp.$$"
+  if [ "$json_backend" = "jq" ]; then
+    # -e: an empty file yields no value at all, which must fail, not write "".
+    printf '%s' "$before" | jq -e --arg k "$key" --arg op "$op" '
+      if type != "object" then error("not an object")
+      elif $op == "true" then .[$k] = true
+      else del(.[$k]) end
+    ' > "$tmp" 2> /dev/null || status=$?
+  else
+    printf '%s' "$before" | python3 -c "$py_edit_top" "$key" "$op" > "$tmp" 2> /dev/null || status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  current="$(cat "$file" 2> /dev/null || true)"
+  if [ "$current" != "$before" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv "$tmp" "$file"
+}
+
 # Drop session files, and temp files left by an interrupted write, untouched for
 # more than 7 days, so files for sessions that ended long ago do not accumulate.
 # Called after a write, never on a plain read.

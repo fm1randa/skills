@@ -836,6 +836,38 @@ JSON
   teardown
 }
 
+# The keys of settings.json other than the Pause, as canonical JSON, so a
+# rewrite that reformats the file still compares equal.
+settings_without_pause() {
+  python3 -c '
+import json, sys
+data = json.load(open(sys.argv[1]))
+data.pop("disabled", None)
+print(json.dumps(data, sort_keys=True))
+' "${root}/settings.json"
+}
+
+test_pause_writes_the_key_and_keeps_the_rest() {
+  setup "pause and pausar write the Pause and keep every other key"
+  seed_settings
+  local expected word out status
+  expected="$(settings_without_pause)"
+  for word in pause pausar PAUSE; do
+    seed_settings
+    # A session id is not needed: the Pause belongs to no session.
+    out="$(env -u CLAUDE_CODE_SESSION_ID bash "$lock" "$word" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${word}'"
+    assert_contains "$out" "paused" "output for '${word}'"
+    assert_eq "true" "$(json_get "${root}/settings.json" disabled)" "disabled for '${word}'"
+    assert_eq "$expected" "$(settings_without_pause)" "other keys for '${word}'"
+  done
+  assert_no_file "${root}/sessions"
+  # Nothing is left behind by the atomic write.
+  assert_eq "settings.json" "$(ls "$root")" "files in the state root"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is
