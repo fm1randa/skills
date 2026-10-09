@@ -13,6 +13,11 @@
 #   lock.sh off | clear | none | unlock | unlocked
 #           | desativar | desligar | destravar
 #                                 turn output-language off for this session
+#   lock.sh pause | pausar        pause every session (settings.json "disabled")
+#   lock.sh resume | retomar      remove the Pause: every session is back
+#
+# pause and resume need no session id, write only settings.json, and keep every
+# other key in it. pause refuses a missing or malformed settings.json.
 #
 # The three states are distinct, and Aidiom (the macOS menu bar app) reads the
 # same shapes: `default` deletes sessions/<sid>.json, so the session inherits the

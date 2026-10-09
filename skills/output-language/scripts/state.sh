@@ -11,7 +11,12 @@
 #     settings.json
 #       { "default": "<profile id>",
 #         "profiles": [ { "id", "short", "label", "instruction",
-#                         "attachments": ["<absolute path>", ...] } ] }
+#                         "attachments": ["<absolute path>", ...] } ],
+#         "disabled": true }                optional: the Pause. While it is
+#                                           true (or the text "true"),
+#                                           remind.sh does nothing in any
+#                                           session; removing it resumes.
+#                                           Every writer must keep the key.
 #     sessions/<session-id>.json            the Session Lock, one of:
 #       { "profile": "<id>" }               pinned to a Language Profile
 #       { "instruction": "<free text>" }    pinned to an ad hoc instruction
