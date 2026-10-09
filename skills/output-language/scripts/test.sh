@@ -911,6 +911,42 @@ test_pausing_twice_is_harmless() {
   teardown
 }
 
+test_resume_removes_the_pause() {
+  setup "resume and retomar remove the Pause and keep every other key"
+  local expected word out status
+  for word in resume retomar RESUME; do
+    seed_paused_settings true
+    expected="$(settings_without_pause)"
+    out="$(env -u CLAUDE_CODE_SESSION_ID bash "$lock" "$word" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${word}'"
+    assert_contains "$out" "resumed" "output for '${word}'"
+    assert_empty "$(json_get "${root}/settings.json" disabled)" "disabled for '${word}'"
+    assert_eq "$expected" "$(settings_without_pause)" "other keys for '${word}'"
+  done
+  assert_eq "settings.json" "$(ls "$root")" "files in the state root"
+  teardown
+}
+
+test_resume_puts_a_pinned_session_back() {
+  setup "after a resume, a pinned session gets its profile back and is not asked again"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  # The attachments were asked for before the Pause.
+  bash "$remind" UserPromptSubmit > /dev/null
+  bash "$lock" pause > /dev/null
+  assert_hook_silent "paused"
+  bash "$lock" resume > /dev/null
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "portugues brasileiro, per ABNT NBR ISO 24495-1" "message"
+  assert_not_contains "$msg" "/tmp/a-guide.pdf" "message"
+  assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is

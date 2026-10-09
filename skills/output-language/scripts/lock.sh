@@ -62,6 +62,21 @@ case "$word" in
     echo "output-language: paused in every session. Run '/output-language resume' to put each one back."
     exit 0
     ;;
+  resume | retomar)
+    settings="$(settings_file)"
+    # Read the way the hook reads it, so "no Pause" here means the hook was not
+    # paused either: a missing or malformed file, or no "disabled" key.
+    if [ "$(json_top "$settings" disabled)" != "true" ]; then
+      echo "output-language: there is no Pause to resume; nothing changed."
+      exit 0
+    fi
+    if ! json_edit_top "$settings" disabled absent; then
+      echo "output-language: ${settings} changed while it was being written; nothing changed." >&2
+      exit 1
+    fi
+    echo "output-language: resumed; every session is back where it was."
+    exit 0
+    ;;
 esac
 
 if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
