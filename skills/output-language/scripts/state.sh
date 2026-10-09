@@ -51,6 +51,12 @@ settings_file() {
   printf '%s/settings.json' "$(state_root)"
 }
 
+# The Pause sentinel. Plain shell on purpose: it is checked before any JSON
+# backend, so a paused hook stays silent even on a machine without one.
+pause_file() {
+  printf '%s/paused' "$(state_root)"
+}
+
 # Path of the Session Lock, or nothing when there is no session id.
 lock_file() {
   local sid="${CLAUDE_CODE_SESSION_ID:-}"

@@ -7,8 +7,8 @@
 #     foreign-language skill (e.g. recon, in English) can't drown out the lock.
 #
 # Resolution order, over the files described in state.sh:
-#   0. "disabled": true in settings.json (the Pause) -> do nothing at all, in
-#      every session, whatever its lock says.
+#   0. The sentinel file "paused" in the state root (the Pause) -> do nothing
+#      at all, in every session, whatever its lock says.
 #   1. Session Lock with "disabled": true -> stay silent for this session.
 #   2. Session Lock with "profile"        -> that Language Profile.
 #   3. Session Lock with "instruction"    -> that text, verbatim, no attachments.
@@ -37,6 +37,12 @@ esac
 # shellcheck source=state.sh
 . "${self_dir}/state.sh"
 
+# The Pause comes before everything else, the backend check included, and while
+# it holds the hook does nothing at all: no reminder, no fingerprint, no
+# pruning. Leaving every file as it was is what lets a resume put each session
+# back where it stood.
+[ ! -e "$(pause_file)" ] || exit 0
+
 # Nothing can be read without a backend, and a hook must never block a prompt to
 # say so. lock.sh is where that misconfiguration gets reported.
 json_backend_available || exit 0
@@ -44,13 +50,6 @@ json_backend_available || exit 0
 event="${1:-UserPromptSubmit}"
 settings="$(settings_file)"
 lock="$(lock_file)"
-
-# The Pause comes before everything else, and while it holds the hook does
-# nothing at all: no reminder, no fingerprint, no pruning. Leaving every file as
-# it was is what lets a resume put each session back where it stood.
-if [ "$(json_top "$settings" disabled)" = "true" ]; then
-  exit 0
-fi
 
 profile_id=""
 instruction=""
