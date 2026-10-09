@@ -758,6 +758,84 @@ test_json_escaping() {
   teardown
 }
 
+# ------------------------------------------------------------------ pause ---
+
+# seed_settings, plus the Pause key as given (a JSON literal: true or "true").
+seed_paused_settings() {
+  local value="$1"
+  seed_settings
+  python3 - "${root}/settings.json" "$value" <<'PY'
+import json, sys
+path, value = sys.argv[1], json.loads(sys.argv[2])
+with open(path) as fh:
+    data = json.load(fh)
+data = {"disabled": value, **data}
+with open(path, "w") as fh:
+    json.dump(data, fh, indent=2)
+PY
+}
+
+# Every remind.sh event, for one session state, prints nothing and exits 0.
+assert_hook_silent() {
+  local what="$1" event out status
+  for event in UserPromptSubmit PostToolUse; do
+    out="$(bash "$remind" "$event" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "${what}: ${event} exit code"
+    assert_empty "$out" "${what}: ${event} stdout"
+  done
+}
+
+test_pause_silences_every_session() {
+  setup "while paused, the hook says nothing to any kind of session"
+  seed_paused_settings true
+  assert_hook_silent "no lock file"
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  assert_hook_silent "pinned to a profile"
+  write_lock <<'JSON'
+{ "instruction": "Middle English" }
+JSON
+  assert_hook_silent "pinned to free text"
+  write_lock <<'JSON'
+{ "attachmentsRequestedFor": "en-ste" }
+JSON
+  assert_hook_silent "inheriting"
+  teardown
+}
+
+test_pause_as_text_silences_too() {
+  setup "a Pause written as the text \"true\" pauses too"
+  seed_paused_settings '"true"'
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  assert_hook_silent "pinned to a profile"
+  teardown
+}
+
+test_pause_writes_and_prunes_nothing() {
+  setup "while paused, the hook writes no fingerprint and prunes nothing"
+  seed_paused_settings true
+  # Unpaused, this turn would ask for pt-abnt's attachments, record the
+  # fingerprint and sweep the stale file below.
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  local stale="${root}/sessions/long-gone.json" before_lock before_settings
+  echo '{ "profile": "pt-abnt" }' > "$stale"
+  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)" "$stale"
+  before_lock="$(cat "$lock_file")"
+  before_settings="$(cat "${root}/settings.json")"
+  bash "$remind" UserPromptSubmit > /dev/null
+  assert_eq "$before_lock" "$(cat "$lock_file")" "the lock"
+  assert_eq "$before_settings" "$(cat "${root}/settings.json")" "settings.json"
+  assert_file "$stale"
+  assert_eq "2" "$(ls "${root}/sessions" | wc -l | tr -d ' ')" "files in sessions/"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is
