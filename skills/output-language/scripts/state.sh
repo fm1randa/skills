@@ -23,12 +23,27 @@
 #       { "profile": "<id>" }               pinned to a Language Profile
 #       { "instruction": "<free text>" }    pinned to an ad hoc instruction
 #       { "disabled": true }                output-language off for this session
-#       plus "attachmentsRequestedFor": "<fingerprint>", written by remind.sh
-#       once it has asked the Agent to read the profile's attachments. A file
-#       with only that key still means "follows the Default Profile". The
-#       fingerprint is the profile id and its sorted attachment paths joined by
-#       newlines, the one character a path cannot hold, so two different
-#       attachment sets can never produce the same fingerprint.
+#                                           No file means the session follows
+#                                           the Default Profile. Written by
+#                                           lock.sh and Aidiom, each replacing
+#                                           the file whole; never by remind.sh.
+#     sessions/<session-id>.asked           the attachment fingerprint, plain
+#                                           text, written only by remind.sh once
+#                                           it has asked the Agent to read the
+#                                           effective profile's attachments. The
+#                                           fingerprint is the profile id and its
+#                                           sorted attachment paths joined by
+#                                           newlines, the one character a path
+#                                           cannot hold, so two different
+#                                           attachment sets can never produce the
+#                                           same fingerprint. A pin never needs
+#                                           to touch it: a new profile gives a
+#                                           new fingerprint, and the hook asks
+#                                           again.
+#
+# A lock written before the fingerprint had its own file may still hold it as
+# "attachmentsRequestedFor"; remind.sh reads that key only while there is no
+# .asked file, and otherwise ignores it.
 #
 # JSON is parsed with jq when it is on PATH, else with python3; both backends
 # keep each read to one short-lived process, which matters because the hook runs
@@ -64,6 +79,13 @@ lock_file() {
   local sid="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$sid" ] || return 0
   printf '%s/sessions/%s.json' "$(state_root)" "$sid"
+}
+
+# Path of the attachment fingerprint, or nothing when there is no session id.
+asked_file() {
+  local sid="${CLAUDE_CODE_SESSION_ID:-}"
+  [ -n "$sid" ] || return 0
+  printf '%s/sessions/%s.asked' "$(state_root)" "$sid"
 }
 
 case "${OUTPUT_LANGUAGE_JSON_BACKEND:-auto}" in
@@ -145,19 +167,6 @@ import json, sys
 sys.stdout.write(json.dumps(sys.stdin.read(), ensure_ascii=False))
 '
 
-py_set_top='
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    data = None
-if not isinstance(data, dict):
-    data = {}
-data[sys.argv[1]] = sys.argv[2]
-json.dump(data, sys.stdout, indent=2, ensure_ascii=False)
-sys.stdout.write("\n")
-'
-
 # json_top <file> <key>: a top-level value as text ("true" for a true boolean).
 # Prints nothing when the file is absent, malformed, not an object, or the key
 # is missing, so a broken file reads exactly like an empty one.
@@ -220,70 +229,48 @@ json_profile_attachments() {
   } | LC_ALL=C sort
 }
 
-# json_set_top <file> <key> <value> <expected>: merge one string key into the
-# object <expected> and write the result to <file>, creating the file and its
-# directory as needed. The write is atomic: a temp file in the same directory,
-# then a rename.
-#
-# <expected> is the content the caller read earlier (empty for "the file did not
-# exist"), and the write is a compare-and-swap on it: if the file no longer holds
-# that content, someone else -- lock.sh in another turn, or Aidiom -- has written
-# a newer lock, and merging stale content over it would silently undo their
-# write. The function then leaves the file alone and fails, so the caller can
-# skip this turn; the next turn re-reads and merges onto what it finds.
-json_set_top() {
-  local file="$1" key="$2" value="$3" expected="${4-}" base tmp status=0 dir
-  base="$expected"
-  # An absent file merges into a fresh object.
-  [ -n "$base" ] || base='{}'
+# read_fingerprint <asked file> <lock file>: the fingerprint the hook last
+# recorded for this session, or nothing. The .asked file wins; only when there
+# is none does a legacy "attachmentsRequestedFor" key in the lock count.
+read_fingerprint() {
+  local asked="$1" lock="$2"
+  if [ -f "$asked" ]; then
+    cat "$asked" 2> /dev/null || true
+    return 0
+  fi
+  json_top "$lock" attachmentsRequestedFor
+}
+
+# write_fingerprint <asked file> <fingerprint>: replace the file whole, through
+# a temp file in the same directory and a rename. remind.sh is its only writer,
+# so there is nothing to merge and no other writer to race.
+write_fingerprint() {
+  local file="$1" value="$2" dir tmp
   dir="${file%/*}"
-  [ "$dir" = "$file" ] || mkdir -p "$dir"
   tmp="${file}.tmp.$$"
-  if [ "$json_backend" = "jq" ]; then
-    printf '%s' "$base" | jq --arg k "$key" --arg v "$value" \
-      'if type == "object" then . else {} end | .[$k] = $v' > "$tmp" 2> /dev/null || status=$?
-  else
-    printf '%s' "$base" | python3 -c "$py_set_top" "$key" "$value" > "$tmp" 2> /dev/null || status=$?
+  if mkdir -p "$dir" 2> /dev/null && printf '%s\n' "$value" > "$tmp" 2> /dev/null \
+    && mv "$tmp" "$file" 2> /dev/null; then
+    return 0
   fi
-  if [ "$status" -ne 0 ]; then
-    rm -f "$tmp"
-    return 1
-  fi
-  commit_if_unchanged "$file" "$tmp" "$expected"
+  rm -f "$tmp"
+  return 1
 }
 
-# commit_if_unchanged <file> <tmp> <expected>: the last step of json_set_top's
-# compare-and-swap. Rename the prepared <tmp> over <file> if <file> still
-# holds <expected> (empty for "the file does not exist"); otherwise remove <tmp>
-# and fail, leaving <file> as the other writer left it.
+# Drop session files (locks and fingerprints), and temp files left by an
+# interrupted write, untouched for more than 7 days, so files for sessions that
+# ended long ago do not accumulate. Called after a write, never on a plain read.
 #
-# The compare, as late as possible: the caller only prepared a temp file, so this
-# compare and the rename are all that a concurrent writer can interleave with. A
-# write that lands between the two is still overwritten; the window is that
-# small, not closed.
-commit_if_unchanged() {
-  local file="$1" tmp="$2" expected="$3" current
-  current="$(cat "$file" 2> /dev/null || true)"
-  if [ "$current" != "$expected" ]; then
-    rm -f "$tmp"
-    return 1
-  fi
-  mv "$tmp" "$file"
-}
-
-# Drop session files, and temp files left by an interrupted write, untouched for
-# more than 7 days, so files for sessions that ended long ago do not accumulate.
-# Called after a write, never on a plain read.
-#
-# The current session's own file is always kept: a session that runs for over a
-# week, or one Aidiom pinned days ago, must not lose its lock to housekeeping.
+# The current session's own files are always kept: a session that runs for over
+# a week, or one Aidiom pinned days ago, must not lose its lock or its
+# fingerprint to housekeeping.
 prune_stale_sessions() {
   local sessions keep="${CLAUDE_CODE_SESSION_ID:-}"
   sessions="$(state_root)/sessions"
   [ -d "$sessions" ] || return 0
   find "$sessions" -maxdepth 1 \
-    \( -name '*.json' -o -name '*.json.tmp.*' \) \
+    \( -name '*.json' -o -name '*.json.tmp.*' -o -name '*.asked' -o -name '*.asked.tmp.*' \) \
     ! -name "${keep}.json" ! -name "${keep}.json.tmp.*" \
+    ! -name "${keep}.asked" ! -name "${keep}.asked.tmp.*" \
     -mtime +7 -print0 2> /dev/null | xargs -0 rm -f 2> /dev/null || true
 }
 

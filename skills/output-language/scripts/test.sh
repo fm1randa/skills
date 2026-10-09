@@ -104,6 +104,7 @@ setup() {
   mkdir -p "$XDG_CONFIG_HOME" "${HOME}/.claude" "${sandbox}/empty-bin"
   root="${XDG_CONFIG_HOME}/output-language"
   lock_file="${root}/sessions/${CLAUDE_CODE_SESSION_ID}.json"
+  asked_file="${root}/sessions/${CLAUDE_CODE_SESSION_ID}.asked"
 }
 
 cleanup() {
@@ -156,6 +157,20 @@ write_lock() {
   cat > "$lock_file"
 }
 
+write_asked() {
+  mkdir -p "${root}/sessions"
+  printf '%s\n' "$1" > "$asked_file"
+}
+
+# The fingerprint the hook recorded, or nothing when it recorded none.
+asked() {
+  cat "$asked_file" 2> /dev/null || true
+}
+
+eight_days_ago() {
+  date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M
+}
+
 # ------------------------------------------------------------------ cases ---
 
 test_silent_with_no_config() {
@@ -188,6 +203,8 @@ test_default_injected_without_session_id() {
   out="$(env -u CLAUDE_CODE_SESSION_ID bash "$remind" UserPromptSubmit)"
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "American English" "message"
+  # With no session id there is nowhere to record a fingerprint, or a lock.
+  assert_no_file "${root}/sessions"
   teardown
 }
 
@@ -216,7 +233,7 @@ JSON
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "Middle English, and rhyme every third line" "message"
   assert_not_contains "$msg" "guide.pdf" "message"
-  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_no_file "$asked_file"
   teardown
 }
 
@@ -255,7 +272,7 @@ JSON
   out="$(bash "$remind" PostToolUse)"
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_not_contains "$msg" "a-guide.pdf" "message"
-  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_no_file "$asked_file"
   teardown
 }
 
@@ -270,9 +287,10 @@ JSON
   msg="$(printf '%s' "$first" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a-guide.pdf" "first message"
   assert_contains "$msg" "/tmp/b-guide.pdf" "first message"
-  fingerprint="$(json_get "$lock_file" attachmentsRequestedFor)"
+  fingerprint="$(asked)"
   assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf')" "$fingerprint" "fingerprint"
-  assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile kept"
+  # The hook never writes the Session Lock.
+  assert_eq '{ "profile": "pt-abnt" }' "$(cat "$lock_file")" "the lock, byte for byte"
 
   second="$(bash "$remind" UserPromptSubmit)"
   msg="$(printf '%s' "$second" | json_stdin hookSpecificOutput additionalContext)"
@@ -282,7 +300,7 @@ JSON
 }
 
 test_attachments_for_inheriting_session() {
-  setup "an inheriting session gets a fingerprint-only lock file, still inheriting"
+  setup "an inheriting session with attachments leaves no lock file behind"
   write_settings <<'JSON'
 {
   "default": "pt-abnt",
@@ -301,28 +319,68 @@ JSON
   out="$(bash "$remind" UserPromptSubmit)"
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a-guide.pdf" "message"
-  assert_file "$lock_file"
-  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
-  assert_empty "$(json_get "$lock_file" profile)" "profile"
-  assert_empty "$(json_get "$lock_file" instruction)" "instruction"
+  assert_no_file "$lock_file"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(asked)" "fingerprint"
+  # Still inheriting: the next turn asks nothing more.
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_not_contains "$msg" "/tmp/a-guide.pdf" "second message"
+  assert_no_file "$lock_file"
   teardown
 }
 
-test_fingerprint_reset_after_relock() {
-  setup "relocking clears the fingerprint, so attachments are requested again"
-  seed_settings
-  write_lock <<'JSON'
-{ "profile": "pt-abnt" }
+# Two profiles that both carry attachments, so a switch between them changes the
+# fingerprint.
+seed_two_attached_profiles() {
+  write_settings <<'JSON'
+{
+  "default": "en-ste",
+  "profiles": [
+    { "id": "en-ste", "short": "EN", "label": "American English",
+      "instruction": "American English", "attachments": ["/tmp/ste.pdf"] },
+    { "id": "pt-abnt", "short": "PT", "label": "Portugues",
+      "instruction": "portugues brasileiro", "attachments": ["/tmp/a-guide.pdf"] }
+  ]
+}
 JSON
-  bash "$remind" UserPromptSubmit > /dev/null
-  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+}
 
+test_switching_profiles_asks_once_for_the_new_attachments() {
+  setup "switching profiles asks for the new profile's attachments once"
+  seed_two_attached_profiles
   bash "$lock" pt-abnt > /dev/null
-  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint after relock"
+  bash "$remind" UserPromptSubmit > /dev/null
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(asked)" "fingerprint"
+
+  bash "$lock" en-ste > /dev/null
+  # The pin replaced the lock and left the fingerprint file to the hook.
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(asked)" "fingerprint after the pin"
 
   local msg
   msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
-  assert_contains "$msg" "/tmp/a-guide.pdf" "message after relock"
+  assert_contains "$msg" "/tmp/ste.pdf" "first message after the switch"
+  assert_eq "$(printf 'en-ste\n/tmp/ste.pdf')" "$(asked)" "fingerprint after the switch"
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_not_contains "$msg" "/tmp/ste.pdf" "second message after the switch"
+  teardown
+}
+
+test_off_and_default_leave_the_fingerprint_alone() {
+  setup "off and default never touch the fingerprint file"
+  seed_two_attached_profiles
+  bash "$lock" pt-abnt > /dev/null
+  bash "$remind" UserPromptSubmit > /dev/null
+  local before
+  before="$(asked)"
+  bash "$lock" off > /dev/null
+  assert_eq "$before" "$(asked)" "fingerprint after off"
+  bash "$lock" default > /dev/null
+  assert_eq "$before" "$(asked)" "fingerprint after default"
+  assert_no_file "$lock_file"
+  # Back on the default, a different profile: asked again, once.
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "/tmp/ste.pdf" "message on the default"
+  assert_no_file "$lock_file"
   teardown
 }
 
@@ -330,11 +388,44 @@ test_fingerprint_change_requests_again() {
   setup "a different profile fingerprint asks again"
   seed_settings
   write_lock <<'JSON'
-{ "profile": "pt-abnt", "attachmentsRequestedFor": "en-ste" }
+{ "profile": "pt-abnt" }
 JSON
+  write_asked "en-ste"
   local msg
   msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a-guide.pdf" "message"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf')" "$(asked)" "fingerprint"
+  teardown
+}
+
+test_a_legacy_fingerprint_in_the_lock_is_still_honored() {
+  setup "a lock still holding attachmentsRequestedFor from before does not ask again"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt", "attachmentsRequestedFor": "pt-abnt\n/tmp/a-guide.pdf\n/tmp/b-guide.pdf" }
+JSON
+  local before msg
+  before="$(cat "$lock_file")"
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "portugues brasileiro" "message"
+  assert_not_contains "$msg" "/tmp/a-guide.pdf" "message"
+  assert_eq "$before" "$(cat "$lock_file")" "the lock, byte for byte"
+  teardown
+}
+
+test_a_legacy_fingerprint_gives_way_to_the_asked_file() {
+  setup "once the fingerprint file exists, a stale key in the lock is ignored"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt", "attachmentsRequestedFor": "en-ste" }
+JSON
+  local before msg
+  before="$(cat "$lock_file")"
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "/tmp/a-guide.pdf" "first message"
+  assert_eq "$before" "$(cat "$lock_file")" "the lock, byte for byte"
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_not_contains "$msg" "/tmp/a-guide.pdf" "second message"
   teardown
 }
 
@@ -454,16 +545,22 @@ test_stale_sessions_are_pruned() {
   seed_settings
   mkdir -p "${root}/sessions"
   local stale="${root}/sessions/long-gone.json"
+  local stale_asked="${root}/sessions/long-gone.asked"
+  local fresh_asked="${root}/sessions/still-here.asked"
   echo '{ "profile": "pt-abnt" }' > "$stale"
-  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)" "$stale"
+  echo 'pt-abnt' > "$stale_asked"
+  echo 'pt-abnt' > "$fresh_asked"
+  touch -t "$(eight_days_ago)" "$stale" "$stale_asked"
   bash "$lock" pt-abnt > /dev/null
   assert_no_file "$stale"
+  assert_no_file "$stale_asked"
+  assert_file "$fresh_asked"
   assert_file "$lock_file"
   teardown
 }
 
 test_own_session_survives_the_prune() {
-  setup "the current session's own lock survives the prune, however old"
+  setup "the current session's own lock and fingerprint survive the prune, however old"
   write_settings <<'JSON'
 {
   "default": "pt-abnt",
@@ -481,11 +578,17 @@ JSON
   write_lock <<'JSON'
 { "profile": "pt-abnt" }
 JSON
-  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)" "$lock_file"
+  write_asked "en-ste"
+  touch -t "$(eight_days_ago)" "$lock_file" "$asked_file"
   # The prune runs on this turn, because the hook writes the fingerprint.
   bash "$remind" UserPromptSubmit > /dev/null
   assert_file "$lock_file"
   assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile kept"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(asked)" "fingerprint"
+  # An old fingerprint that this turn does not rewrite survives too.
+  touch -t "$(eight_days_ago)" "$lock_file" "$asked_file"
+  bash "$lock" pt-abnt > /dev/null
+  assert_file "$asked_file"
   teardown
 }
 
@@ -522,16 +625,20 @@ test_stale_temp_files_are_pruned() {
   seed_settings
   mkdir -p "${root}/sessions"
   local stale="${root}/sessions/long-gone.json.tmp.4242"
+  local stale_asked="${root}/sessions/long-gone.asked.tmp.4242"
   local mine="${lock_file}.tmp.4242"
-  local eight_days
-  eight_days="$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)"
+  local mine_asked="${asked_file}.tmp.4242"
   echo '{ "profile": "pt-abnt" }' > "$stale"
+  echo 'pt-abnt' > "$stale_asked"
   echo '{ "profile": "pt-abnt" }' > "$mine"
-  touch -t "$eight_days" "$stale" "$mine"
+  echo 'pt-abnt' > "$mine_asked"
+  touch -t "$(eight_days_ago)" "$stale" "$stale_asked" "$mine" "$mine_asked"
   bash "$lock" pt-abnt > /dev/null
   assert_no_file "$stale"
+  assert_no_file "$stale_asked"
   # The current session's own leftovers are kept, like its lock file.
   assert_file "$mine"
+  assert_file "$mine_asked"
   teardown
 }
 
@@ -552,33 +659,10 @@ JSON
   teardown
 }
 
-test_fingerprint_write_refuses_a_stale_base() {
-  setup "the fingerprint write refuses to merge stale content over a newer lock"
-  seed_settings
-  write_lock <<'JSON'
-{ "profile": "pt-abnt" }
-JSON
-  local out
-  # Drive json_set_top with a snapshot taken before another writer lands, which
-  # is the interleaving remind.sh can hit between its read and its rename.
-  out="$(bash -c '
-    . "$1/state.sh"
-    snapshot="$(cat "$2")"
-    printf "%s\n" "{ \"instruction\": \"newer\" }" > "$2"
-    if json_set_top "$2" attachmentsRequestedFor stale "$snapshot"; then
-      echo "committed"
-    else
-      echo "refused"
-    fi
-  ' _ "$script_dir" "$lock_file")"
-  assert_eq "refused" "$out" "outcome"
-  assert_eq "newer" "$(json_get "$lock_file" instruction)" "the newer lock survives"
-  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
-  teardown
-}
-
 test_relock_during_a_turn_survives() {
-  setup "a relock landing mid-turn beats the fingerprint write"
+  setup "a relock landing mid-turn survives the fingerprint write"
+  # The hook no longer writes the lock, so this holds by construction; it stays
+  # as a guard against the hook ever writing the lock again.
   write_settings <<'JSON'
 {
   "default": "pt-abnt",
@@ -591,8 +675,8 @@ JSON
   write_lock <<'JSON'
 { "profile": "pt-abnt" }
 JSON
-  # A shim in front of the JSON backend replaces the lock file at the moment the
-  # fingerprint write is being prepared: a real interleaving, not a simulated one.
+  # A shim in front of the JSON backend replaces the lock file while the hook is
+  # reading the attachments: a real interleaving, not a simulated one.
   local tool real out msg
   mkdir -p "${sandbox}/shim"
   for tool in jq python3; do
@@ -601,7 +685,7 @@ JSON
     {
       echo '#!/bin/sh'
       echo 'case "$*" in'
-      echo '  *attachmentsRequestedFor*)'
+      echo '  *attachments*)'
       printf "    printf '%%s\\\\n' '{ \"instruction\": \"relocked mid-turn\" }' > %s\n" "$lock_file"
       echo '    ;;'
       echo 'esac'
@@ -614,8 +698,8 @@ JSON
   msg="$(printf '%s' "$out" | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "portugues brasileiro" "message"
   assert_eq "relocked mid-turn" "$(json_get "$lock_file" instruction)" "the newer lock survives"
-  assert_empty "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
-  assert_empty "$(json_get "$lock_file" profile)" "profile"
+  assert_eq "$(printf '{ "instruction": "relocked mid-turn" }')" "$(cat "$lock_file")" "the lock, byte for byte"
+  assert_eq "$(printf 'pt-abnt\n/tmp/a-guide.pdf')" "$(asked)" "fingerprint"
   teardown
 }
 
@@ -686,7 +770,7 @@ JSON
   local msg
   msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a|b.pdf" "first message"
-  assert_eq "$(printf 'pipe\n/tmp/a|b.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_eq "$(printf 'pipe\n/tmp/a|b.pdf')" "$(asked)" "fingerprint"
 
   # Same profile id, two paths whose naive join is the same string as above.
   write_settings <<'JSON'
@@ -700,7 +784,7 @@ JSON
 JSON
   msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
   assert_contains "$msg" "/tmp/a" "second message asks again"
-  assert_eq "$(printf 'pipe\n/tmp/a\nb.pdf')" "$(json_get "$lock_file" attachmentsRequestedFor)" "fingerprint"
+  assert_eq "$(printf 'pipe\n/tmp/a\nb.pdf')" "$(asked)" "fingerprint"
   teardown
 }
 
@@ -843,6 +927,7 @@ JSON
   assert_eq "$before_lock" "$(cat "$lock_file")" "the lock"
   assert_eq "$before_settings" "$(cat "${root}/settings.json")" "settings.json"
   assert_file "$stale"
+  assert_no_file "$asked_file"
   assert_eq "2" "$(ls "${root}/sessions" | wc -l | tr -d ' ')" "files in sessions/"
   teardown
 }
