@@ -40,6 +40,8 @@ it is the whole preference in one place. `short` is the two- or three-character
 badge Aidiom shows. `attachments` holds absolute paths and may be empty or
 absent.
 
+Aidiom is the only program that writes this file; the skill only reads it.
+
 There is no seed step in the skill: write this file by hand, or let Aidiom
 create it on first start.
 
@@ -71,10 +73,18 @@ read — every `lock.sh` run, and in the hook only when it records an attachment
 request — so a machine where nothing ever changes never prunes. The current
 session's own file is always kept, however old.
 
+### `paused`
+
+The **Pause**. While this file exists, the hook does nothing in any session (see
+[Pause](#pause)); when it is absent, nothing is paused. Only its existence
+counts.
+
 ## Resolution order
 
 Every turn, the hook resolves in this order:
 
+0. The file `paused` in the state root — the Pause. Do nothing at all, in every
+   session, whatever its lock says.
 1. Session Lock with `"disabled": true` — stay silent for this session, the
    Default Profile included.
 2. Session Lock with `"profile"` — that Language Profile and its attachments. A
@@ -91,6 +101,30 @@ Every turn, the hook resolves in this order:
 A missing, malformed or unreadable `settings.json` reads as "nothing usable", so
 the hook never blocks a prompt on a machine without the setup, or with a broken
 file.
+
+## Pause
+
+`/output-language pause` (or `pausar`) creates the file `paused` in the state
+root; `/output-language resume` (or `retomar`) removes it. The file's existence
+is the Pause and its content is ignored; writers put an ISO-8601 timestamp in it
+so a human can tell when the Pause began. The hook checks for the file before it
+reads anything else, and while it exists the hook does nothing at all: no
+reminder, no attachment request, no fingerprint write, no pruning. Because no
+file changes, a resume puts every session back where it was. A pinned session
+gets its own profile back, and it is not asked to read attachments it already
+read.
+
+Unlike `off`, which writes `{ "disabled": true }` to one session's lock, the
+Pause covers every session, including those that start while it holds. It
+changes neither the Default Profile nor any lock. The reasons for this
+design are in ADR 0004.
+
+Neither command reads or writes `settings.json`, so both work when it is
+missing or malformed, and neither needs a session id or a JSON backend. Creating
+and removing a file are each atomic, so a Pause is never lost to a concurrent
+save of `settings.json`. `pause` while paused says so and leaves the file, and
+the time it records, as it was; `resume` with no Pause in place changes nothing
+and says so.
 
 ## Attachments, read once
 
@@ -193,7 +227,8 @@ a client of it, and either can be used alone.
 
 The vocabulary lines up with the states above: a session with no lock file shows
 as "default (inherited)", "Follow default" deletes the lock file, and a session
-whose lock says `"disabled": true` shows as off. Aidiom is optional — the hook,
+whose lock says `"disabled": true` shows as off. Aidiom can also pause and resume,
+by creating and removing the same `paused` file as the skill. Aidiom is optional — the hook,
 the skill and a hand-written `settings.json` are the whole mechanism.
 
 ## Other agents

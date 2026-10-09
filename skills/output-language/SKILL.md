@@ -1,7 +1,7 @@
 ---
 name: output-language
-description: Lock every reply of this session to a language, instead of letting the conversation decide — `/output-language <profile id | free text>` pins it, `default` goes back to inheriting the default profile, `off` disables it for the session.
-argument-hint: [profile id | instruction | default | off]
+description: Lock every reply of this session to a language, instead of letting the conversation decide — `/output-language <profile id | free text>` pins it, `default` goes back to inheriting the default profile, `off` disables it for the session, `pause` and `resume` silence and restore it in every session at once.
+argument-hint: [profile id | instruction | default | off | pause | resume]
 ---
 
 # Output language
@@ -18,8 +18,10 @@ Sessions already follow a **Default Profile** without running this skill. You ar
 | free text (`Japanese`, `formal pt-BR`) | Pins the session to that instruction, verbatim. No attachments.    |
 | `default`                             | Removes the lock: the session follows the Default Profile again.   |
 | `off`                                 | Turns output-language off for the session — the default is ignored too. |
+| `pause`                               | Pauses output-language in **every** session; each lock is kept.   |
+| `resume`                              | Removes the Pause: every session is back where it was.            |
 
-`off` also answers to `clear`, `none`, `unlock`, `unlocked`, `desativar`, `desligar` and `destravar`, in any case.
+`off` also answers to `clear`, `none`, `unlock`, `unlocked`, `desativar`, `desligar` and `destravar`, in any case. `pause` also answers to `pausar`, and `resume` to `retomar`.
 
 The profile ids come from `settings.json`; an argument that matches none of them is taken as free text, so a typo pins the session to the typo. Read the ids when you need them:
 
@@ -50,3 +52,12 @@ bash "$HOME/.claude/skills/output-language/scripts/lock.sh" off
 ```
 
 `off` and `default` are not the same. `off` silences the reminder for this session, the Default Profile included; `default` only drops this session's own choice, so it inherits again.
+
+## Pause
+
+```bash
+bash "$HOME/.claude/skills/output-language/scripts/lock.sh" pause
+bash "$HOME/.claude/skills/output-language/scripts/lock.sh" resume
+```
+
+`pause` is not a stronger `off`. It creates the file `paused` in the state root (`~/.config/output-language`), so the hook goes silent in every session, including those that start later; `resume` removes it. No session's lock is touched, so `resume` puts each session back on its own profile. Neither command needs `CLAUDE_CODE_SESSION_ID`, and neither reads or writes `settings.json`.

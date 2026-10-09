@@ -13,6 +13,12 @@
 #   lock.sh off | clear | none | unlock | unlocked
 #           | desativar | desligar | destravar
 #                                 turn output-language off for this session
+#   lock.sh pause | pausar        pause every session (creates <state root>/paused)
+#   lock.sh resume | retomar      remove the Pause: every session is back
+#
+# pause and resume need no session id, no JSON backend and no settings.json, and
+# never touch settings.json: the Pause is the sentinel file alone. Pausing while
+# paused and resuming while not paused change nothing.
 #
 # The three states are distinct, and Aidiom (the macOS menu bar app) reads the
 # same shapes: `default` deletes sessions/<sid>.json, so the session inherits the
@@ -34,18 +40,59 @@ esac
 # shellcheck source=state.sh
 . "${self_dir}/state.sh"
 
-if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-  echo "output-language: CLAUDE_CODE_SESSION_ID is not set; cannot persist the lock." >&2
-  echo "output-language: your Claude Code may be too old to expose the session id." >&2
+argument="${1:-}"
+
+# The Pause is the sentinel file, not a key in settings.json or a Session Lock:
+# it needs no session id, no JSON backend and no settings.json, touches no other
+# file, and every session keeps what it held. Creating and removing a file are
+# each one atomic step, so no concurrent writer of settings.json can lose it.
+# nocasematch instead of tr, so this branch runs before the backend check below
+# with nothing but bash.
+shopt -s nocasematch
+case "$argument" in
+  pause | pausar)
+    sentinel="$(pause_file)"
+    mkdir -p "${sentinel%/*}"
+    # noclobber makes the redirection create the file or fail, in one step, so
+    # an existing Pause (and the time it records) is never rewritten.
+    if ! (set -C; date -u +%Y-%m-%dT%H:%M:%SZ > "$sentinel") 2> /dev/null; then
+      if [ -e "$sentinel" ]; then
+        echo "output-language: already paused in every session. Run '/output-language resume' to put each one back."
+        exit 0
+      fi
+      echo "output-language: cannot create ${sentinel}; nothing changed." >&2
+      exit 1
+    fi
+    echo "output-language: paused in every session. Run '/output-language resume' to put each one back."
+    exit 0
+    ;;
+  resume | retomar)
+    sentinel="$(pause_file)"
+    if [ ! -e "$sentinel" ]; then
+      echo "output-language: there is no Pause to resume; nothing changed."
+      exit 0
+    fi
+    rm -f "$sentinel"
+    echo "output-language: resumed; every session is back where it was."
+    exit 0
+    ;;
+esac
+shopt -u nocasematch
+
+# Before anything else that writes a lock: without a backend a profile id would
+# look unknown and the instruction would come out empty, which would write a
+# lock that says nothing while reporting success.
+if ! json_backend_available; then
+  echo "output-language: no usable JSON backend ('$(json_backend_name)'); cannot write any state." >&2
+  echo "output-language: install jq or python3, or unset OUTPUT_LANGUAGE_JSON_BACKEND." >&2
   exit 1
 fi
 
-# Before any write: without a backend a profile id would look unknown and the
-# instruction would come out empty, which would write a lock that says nothing
-# while reporting success.
-if ! json_backend_available; then
-  echo "output-language: no usable JSON backend ('$(json_backend_name)'); cannot write the lock." >&2
-  echo "output-language: install jq or python3, or unset OUTPUT_LANGUAGE_JSON_BACKEND." >&2
+word="$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')"
+
+if [ -z "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  echo "output-language: CLAUDE_CODE_SESSION_ID is not set; cannot persist the lock." >&2
+  echo "output-language: your Claude Code may be too old to expose the session id." >&2
   exit 1
 fi
 
@@ -62,9 +109,7 @@ write_lock() {
   mv "$tmp" "$file"
 }
 
-argument="${1:-}"
-
-case "$(printf '%s' "$argument" | tr '[:upper:]' '[:lower:]')" in
+case "$word" in
   ""|off|clear|none|unlock|unlocked|desativar|desligar|destravar)
     write_lock '"disabled": true'
     echo "output-language: off for this session (the Default Profile is ignored too)."

@@ -758,6 +758,298 @@ test_json_escaping() {
   teardown
 }
 
+# ------------------------------------------------------------------ pause ---
+
+# The Pause: the sentinel file in the state root. Its content is ignored, so the
+# timestamp here is only what a writer would put there for a human to read.
+seed_pause() {
+  mkdir -p "$root"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "${root}/paused"
+}
+
+# Every remind.sh event, for one session state, prints nothing and exits 0.
+assert_hook_silent() {
+  local what="$1" event out status
+  for event in UserPromptSubmit PostToolUse; do
+    out="$(bash "$remind" "$event" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "${what}: ${event} exit code"
+    assert_empty "$out" "${what}: ${event} stdout"
+  done
+}
+
+test_pause_silences_every_session() {
+  setup "while paused, the hook says nothing to any kind of session"
+  seed_settings
+  seed_pause
+  assert_hook_silent "no lock file"
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  assert_hook_silent "pinned to a profile"
+  write_lock <<'JSON'
+{ "instruction": "Middle English" }
+JSON
+  assert_hook_silent "pinned to free text"
+  write_lock <<'JSON'
+{ "attachmentsRequestedFor": "en-ste" }
+JSON
+  assert_hook_silent "inheriting"
+  teardown
+}
+
+test_pause_holds_whatever_the_sentinel_says() {
+  setup "the sentinel pauses whatever it holds, even nothing"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  local body
+  for body in '' 'false' '{"disabled": false}'; do
+    mkdir -p "$root"
+    printf '%s' "$body" > "${root}/paused"
+    assert_hook_silent "sentinel holding '${body}'"
+  done
+  teardown
+}
+
+test_pause_comes_before_the_backend_check() {
+  setup "while paused, the hook is silent even with an unusable JSON backend"
+  seed_settings
+  seed_pause
+  local out status
+  out="$(OUTPUT_LANGUAGE_JSON_BACKEND=no-such-backend bash "$remind" UserPromptSubmit 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code"
+  assert_empty "$out" "stdout"
+  teardown
+}
+
+test_pause_writes_and_prunes_nothing() {
+  setup "while paused, the hook writes no fingerprint and prunes nothing"
+  seed_settings
+  seed_pause
+  # Unpaused, this turn would ask for pt-abnt's attachments, record the
+  # fingerprint and sweep the stale file below.
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  local stale="${root}/sessions/long-gone.json" before_lock before_settings
+  echo '{ "profile": "pt-abnt" }' > "$stale"
+  touch -t "$(date -v-8d +%Y%m%d%H%M 2>/dev/null || date -d '8 days ago' +%Y%m%d%H%M)" "$stale"
+  before_lock="$(cat "$lock_file")"
+  before_settings="$(cat "${root}/settings.json")"
+  bash "$remind" UserPromptSubmit > /dev/null
+  assert_eq "$before_lock" "$(cat "$lock_file")" "the lock"
+  assert_eq "$before_settings" "$(cat "${root}/settings.json")" "settings.json"
+  assert_file "$stale"
+  assert_eq "2" "$(ls "${root}/sessions" | wc -l | tr -d ' ')" "files in sessions/"
+  teardown
+}
+
+test_disabled_key_in_settings_no_longer_pauses() {
+  setup "a \"disabled\" key in settings.json is not the Pause"
+  seed_settings
+  python3 - "${root}/settings.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+data["disabled"] = True
+json.dump(data, open(path, "w"), indent=2)
+PY
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "American English" "message"
+  teardown
+}
+
+# The files in the state root, one per line, so a test can see that nothing was
+# created, left behind or removed besides what it expects.
+state_root_files() {
+  ls "$root" | tr '\n' ' ' | sed 's/ $//'
+}
+
+test_pause_creates_the_sentinel() {
+  setup "pause and pausar create the sentinel and leave settings.json byte-for-byte"
+  local fixture="${sandbox}/settings.fixture" word out status
+  for word in pause pausar PAUSE; do
+    seed_settings
+    rm -f "${root}/paused"
+    cp "${root}/settings.json" "$fixture"
+    # A session id is not needed: the Pause belongs to no session.
+    out="$(env -u CLAUDE_CODE_SESSION_ID bash "$lock" "$word" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${word}'"
+    assert_contains "$out" "paused" "output for '${word}'"
+    assert_not_contains "$out" "already" "output for '${word}'"
+    assert_file "${root}/paused"
+    cmp -s "$fixture" "${root}/settings.json" || fail "settings.json changed for '${word}'"
+    assert_eq "paused settings.json" "$(state_root_files)" "files in the state root for '${word}'"
+  done
+  # For a human who finds the file: when the Pause began.
+  assert_contains "$(cat "${root}/paused")" "T" "sentinel content"
+  assert_no_file "${root}/sessions"
+  teardown
+}
+
+test_pause_works_without_settings() {
+  setup "pause creates the sentinel, and no settings.json, when there is none"
+  local out status
+  out="$(bash "$lock" pause 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code"
+  assert_contains "$out" "paused" "output"
+  assert_file "${root}/paused"
+  assert_no_file "${root}/settings.json"
+  assert_hook_silent "paused with no settings.json"
+  teardown
+}
+
+test_pause_leaves_a_malformed_settings_alone() {
+  setup "pause pauses, and leaves a malformed settings.json byte-for-byte"
+  local body out status
+  # Truncated JSON, an empty file, and valid JSON that is not an object.
+  for body in '{ "default": "en-ste", "profiles": [' '' '["en-ste"]'; do
+    rm -rf "$root"
+    mkdir -p "$root"
+    printf '%s' "$body" > "${root}/settings.json"
+    out="$(bash "$lock" pause 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${body}'"
+    assert_file "${root}/paused"
+    assert_eq "$body" "$(cat "${root}/settings.json")" "settings.json for '${body}'"
+  done
+  teardown
+}
+
+test_pause_and_resume_need_no_backend() {
+  setup "pause and resume work without a usable JSON backend"
+  seed_settings
+  local out status
+  out="$(OUTPUT_LANGUAGE_JSON_BACKEND=no-such-backend bash "$lock" pause 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "pause exit code"
+  assert_file "${root}/paused"
+  out="$(OUTPUT_LANGUAGE_JSON_BACKEND=no-such-backend bash "$lock" resume 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "resume exit code"
+  assert_no_file "${root}/paused"
+  teardown
+}
+
+test_pausing_twice_leaves_the_sentinel_alone() {
+  setup "pause while paused says so and leaves the sentinel as it was"
+  seed_settings
+  mkdir -p "$root"
+  printf '%s' 'paused by hand' > "${root}/paused"
+  local word out status
+  for word in pause pausar; do
+    out="$(bash "$lock" "$word" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${word}'"
+    assert_contains "$out" "already paused" "output for '${word}'"
+    assert_eq "paused by hand" "$(cat "${root}/paused")" "sentinel for '${word}'"
+  done
+  teardown
+}
+
+test_resume_removes_the_sentinel() {
+  setup "resume and retomar remove the sentinel and leave settings.json byte-for-byte"
+  local fixture="${sandbox}/settings.fixture" word out status
+  for word in resume retomar RESUME; do
+    seed_settings
+    seed_pause
+    cp "${root}/settings.json" "$fixture"
+    out="$(env -u CLAUDE_CODE_SESSION_ID bash "$lock" "$word" 2>&1)"
+    status=$?
+    assert_eq 0 "$status" "exit code for '${word}'"
+    assert_contains "$out" "resumed" "output for '${word}'"
+    assert_no_file "${root}/paused"
+    cmp -s "$fixture" "${root}/settings.json" || fail "settings.json changed for '${word}'"
+  done
+  assert_eq "settings.json" "$(state_root_files)" "files in the state root"
+  teardown
+}
+
+test_resume_puts_a_pinned_session_back() {
+  setup "after a resume, a pinned session gets its profile back and is not asked again"
+  seed_settings
+  write_lock <<'JSON'
+{ "profile": "pt-abnt" }
+JSON
+  # The attachments were asked for before the Pause.
+  bash "$remind" UserPromptSubmit > /dev/null
+  bash "$lock" pause > /dev/null
+  assert_hook_silent "paused"
+  bash "$lock" resume > /dev/null
+  local msg
+  msg="$(bash "$remind" UserPromptSubmit | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "portugues brasileiro, per ABNT NBR ISO 24495-1" "message"
+  assert_not_contains "$msg" "/tmp/a-guide.pdf" "message"
+  assert_eq "pt-abnt" "$(json_get "$lock_file" profile)" "profile"
+  teardown
+}
+
+test_resume_without_a_pause_changes_nothing() {
+  setup "resume with no Pause says so and changes nothing"
+  local out status
+  out="$(bash "$lock" resume 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code with no state root"
+  assert_contains "$out" "no Pause" "output with no state root"
+  assert_no_file "$root"
+
+  seed_settings
+  out="$(bash "$lock" retomar 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code with settings.json"
+  assert_contains "$out" "no Pause" "output with settings.json"
+  assert_eq "settings.json" "$(state_root_files)" "files in the state root"
+  teardown
+}
+
+test_pause_survives_a_concurrent_settings_writer() {
+  setup "a Pause is never lost to, and never touches, a concurrent settings.json writer"
+  seed_settings
+  local fixture="${sandbox}/settings.fixture" writer i
+  cp "${root}/settings.json" "$fixture"
+  # Aidiom's save, a few hundred times over: a temp file, then a rename.
+  (
+    for i in $(seq 1 300); do
+      cp "$fixture" "${root}/settings.json.tmp.writer"
+      mv "${root}/settings.json.tmp.writer" "${root}/settings.json"
+    done
+  ) &
+  writer=$!
+  bash "$lock" pause > /dev/null
+  bash "$lock" resume > /dev/null
+  bash "$lock" pause > /dev/null
+  wait "$writer"
+  assert_file "${root}/paused"
+  cmp -s "$fixture" "${root}/settings.json" || fail "settings.json differs from the fixture"
+  assert_eq "paused settings.json" "$(state_root_files)" "files in the state root"
+  teardown
+}
+
+test_off_still_means_this_session_only() {
+  setup "off and its synonyms still turn off only this session, never pause"
+  seed_settings
+  local before word
+  before="$(cat "${root}/settings.json")"
+  for word in off desativar desligar; do
+    rm -f "$lock_file"
+    bash "$lock" "$word" > /dev/null
+    assert_eq "true" "$(json_get "$lock_file" disabled)" "lock for '${word}'"
+    assert_eq "$before" "$(cat "${root}/settings.json")" "settings.json for '${word}'"
+  done
+  # Another session still hears the Default Profile.
+  local msg
+  msg="$(CLAUDE_CODE_SESSION_ID=another-session bash "$remind" UserPromptSubmit \
+    | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "American English" "another session"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is

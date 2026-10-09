@@ -12,6 +12,13 @@
 #       { "default": "<profile id>",
 #         "profiles": [ { "id", "short", "label", "instruction",
 #                         "attachments": ["<absolute path>", ...] } ] }
+#                                           written only by Aidiom; this skill
+#                                           reads it and never writes it.
+#     paused                                the Pause: while this file exists,
+#                                           remind.sh does nothing in any
+#                                           session; removing it resumes. Its
+#                                           content is ignored (writers put an
+#                                           ISO-8601 timestamp in it for humans).
 #     sessions/<session-id>.json            the Session Lock, one of:
 #       { "profile": "<id>" }               pinned to a Language Profile
 #       { "instruction": "<free text>" }    pinned to an ad hoc instruction
@@ -44,6 +51,12 @@ state_root() {
 
 settings_file() {
   printf '%s/settings.json' "$(state_root)"
+}
+
+# The Pause sentinel. Plain shell on purpose: it is checked before any JSON
+# backend, so a paused hook stays silent even on a machine without one.
+pause_file() {
+  printf '%s/paused' "$(state_root)"
 }
 
 # Path of the Session Lock, or nothing when there is no session id.
@@ -219,7 +232,7 @@ json_profile_attachments() {
 # write. The function then leaves the file alone and fails, so the caller can
 # skip this turn; the next turn re-reads and merges onto what it finds.
 json_set_top() {
-  local file="$1" key="$2" value="$3" expected="${4-}" base tmp current status=0 dir
+  local file="$1" key="$2" value="$3" expected="${4-}" base tmp status=0 dir
   base="$expected"
   # An absent file merges into a fresh object.
   [ -n "$base" ] || base='{}'
@@ -236,12 +249,21 @@ json_set_top() {
     rm -f "$tmp"
     return 1
   fi
-  # The compare, as late as possible: everything above only prepared a temp file,
-  # so this and the rename are all that a concurrent writer can interleave with.
-  current=""
-  if [ -f "$file" ]; then
-    current="$(cat "$file")"
-  fi
+  commit_if_unchanged "$file" "$tmp" "$expected"
+}
+
+# commit_if_unchanged <file> <tmp> <expected>: the last step of json_set_top's
+# compare-and-swap. Rename the prepared <tmp> over <file> if <file> still
+# holds <expected> (empty for "the file does not exist"); otherwise remove <tmp>
+# and fail, leaving <file> as the other writer left it.
+#
+# The compare, as late as possible: the caller only prepared a temp file, so this
+# compare and the rename are all that a concurrent writer can interleave with. A
+# write that lands between the two is still overwritten; the window is that
+# small, not closed.
+commit_if_unchanged() {
+  local file="$1" tmp="$2" expected="$3" current
+  current="$(cat "$file" 2> /dev/null || true)"
   if [ "$current" != "$expected" ]; then
     rm -f "$tmp"
     return 1

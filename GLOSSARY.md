@@ -53,6 +53,10 @@ _Avoid_: global language, fallback
 A per-session file, under `sessions/` in the skill's state root (`~/.config/output-language`), that overrides the Default Profile for that session only. It holds one of three states: a Language Profile, an ad hoc instruction, or `disabled` (output-language off, the default ignored too). No file means the session follows the Default Profile — including a file that holds nothing but the attachment fingerprint.
 _Avoid_: override, pin
 
+**Pause**:
+The state in which the Reminder hook does nothing in any session, whatever its Session Lock says, without changing the Default Profile or any Session Lock. Resuming puts every session back where it was. Unlike a `disabled` Session Lock, it covers every session and keeps what each one held.
+_Avoid_: global off, kill switch, disable all
+
 **Attachment**:
 A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session and attachment set, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool.
 _Avoid_: reference, context file
@@ -71,6 +75,7 @@ _Avoid_: the app, langbar
 - The **Skills CLI** installs a **Skill** into an **Agent** by copying the **Source of truth** into an **Installed copy** (re-sync after edits).
 - A **Plugin** may bundle **Skills**, but this repo distributes bare **Skills** — no **Plugin**, no **Marketplace**.
 - A **Session Lock** wins over the **Default Profile**; removing the lock makes the session follow the default again ("Follow default"), while a `disabled` lock silences the **Reminder hook** for that session.
+- **Pause** wins over every **Session Lock** and the **Default Profile**; resuming leaves both as they were.
 - **Aidiom** and `/output-language` write the same files; the **Reminder hook** reads them. The skill owns the file contract, **Aidiom** is a client of it.
 
 ## Example dialogue
