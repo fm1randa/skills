@@ -947,6 +947,45 @@ JSON
   teardown
 }
 
+test_resume_without_a_pause_changes_nothing() {
+  setup "resume with no Pause says so and changes nothing"
+  local out status before
+  out="$(bash "$lock" resume 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code with no settings.json"
+  assert_contains "$out" "no Pause" "output with no settings.json"
+  assert_no_file "${root}/settings.json"
+
+  seed_settings
+  before="$(cat "${root}/settings.json")"
+  out="$(bash "$lock" retomar 2>&1)"
+  status=$?
+  assert_eq 0 "$status" "exit code when not paused"
+  assert_contains "$out" "no Pause" "output when not paused"
+  assert_eq "$before" "$(cat "${root}/settings.json")" "settings.json"
+  assert_no_file "${root}/sessions"
+  teardown
+}
+
+test_off_still_means_this_session_only() {
+  setup "off and its synonyms still turn off only this session, never pause"
+  seed_settings
+  local before word
+  before="$(cat "${root}/settings.json")"
+  for word in off desativar desligar; do
+    rm -f "$lock_file"
+    bash "$lock" "$word" > /dev/null
+    assert_eq "true" "$(json_get "$lock_file" disabled)" "lock for '${word}'"
+    assert_eq "$before" "$(cat "${root}/settings.json")" "settings.json for '${word}'"
+  done
+  # Another session still hears the Default Profile.
+  local msg
+  msg="$(CLAUDE_CODE_SESSION_ID=another-session bash "$remind" UserPromptSubmit \
+    | json_stdin hookSpecificOutput additionalContext)"
+  assert_contains "$msg" "American English" "another session"
+  teardown
+}
+
 # ------------------------------------------------------------------- main ---
 
 # Every case runs once per available JSON backend, so the python3 fallback is
