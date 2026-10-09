@@ -11,12 +11,14 @@
 #     settings.json
 #       { "default": "<profile id>",
 #         "profiles": [ { "id", "short", "label", "instruction",
-#                         "attachments": ["<absolute path>", ...] } ],
-#         "disabled": true }                optional: the Pause. While it is
-#                                           true (or the text "true"),
+#                         "attachments": ["<absolute path>", ...] } ] }
+#                                           written only by Aidiom; this skill
+#                                           reads it and never writes it.
+#     paused                                the Pause: while this file exists,
 #                                           remind.sh does nothing in any
-#                                           session; removing it resumes.
-#                                           Every writer must keep the key.
+#                                           session; removing it resumes. Its
+#                                           content is ignored (writers put an
+#                                           ISO-8601 timestamp in it for humans).
 #     sessions/<session-id>.json            the Session Lock, one of:
 #       { "profile": "<id>" }               pinned to a Language Profile
 #       { "instruction": "<free text>" }    pinned to an ad hoc instruction
@@ -250,8 +252,8 @@ json_set_top() {
   commit_if_unchanged "$file" "$tmp" "$expected"
 }
 
-# commit_if_unchanged <file> <tmp> <expected>: the last step of every
-# compare-and-swap write. Rename the prepared <tmp> over <file> if <file> still
+# commit_if_unchanged <file> <tmp> <expected>: the last step of json_set_top's
+# compare-and-swap. Rename the prepared <tmp> over <file> if <file> still
 # holds <expected> (empty for "the file does not exist"); otherwise remove <tmp>
 # and fail, leaving <file> as the other writer left it.
 #
@@ -267,65 +269,6 @@ commit_if_unchanged() {
     return 1
   fi
   mv "$tmp" "$file"
-}
-
-py_edit_top='
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    sys.exit(1)
-if not isinstance(data, dict):
-    sys.exit(1)
-if sys.argv[2] == "set":
-    data[sys.argv[1]] = True
-else:
-    data.pop(sys.argv[1], None)
-json.dump(data, sys.stdout, indent=2, ensure_ascii=False)
-sys.stdout.write("\n")
-'
-
-# json_edit_top <file> <key> <set|delete>: set one top-level key to true, or
-# delete it, keeping every other key. Unlike json_set_top, this one is strict:
-# it fails, and leaves the file byte-for-byte as it was, when the file is
-# missing, malformed or not an object, because settings.json holds the user's
-# profiles and must never be replaced by an object built from nothing.
-#
-# The exit code tells the caller which message is true: 1 when the file is
-# missing or cannot be read, 2 when it is not a JSON object, 3 when it changed
-# while it was being written, 4 when the mode is neither set nor delete.
-#
-# The write is atomic (a temp file, then a rename) and a compare-and-swap on
-# what was read, so an edit Aidiom saves while the new content is prepared is
-# not overwritten; see commit_if_unchanged for the window that remains.
-json_edit_top() {
-  local file="$1" key="$2" op="$3" before tmp status=0
-  # Spelled out, so a typo fails here instead of silently deleting the key.
-  case "$op" in
-    set | delete) ;;
-    *)
-      echo "json_edit_top: unknown mode '${op}'; expected set or delete." >&2
-      return 4
-      ;;
-  esac
-  [ -f "$file" ] || return 1
-  before="$(cat "$file" 2> /dev/null)" || return 1
-  tmp="${file}.tmp.$$"
-  if [ "$json_backend" = "jq" ]; then
-    # -e: an empty file yields no value at all, which must fail, not write "".
-    printf '%s' "$before" | jq -e --arg k "$key" --arg op "$op" '
-      if type != "object" then error("not an object")
-      elif $op == "set" then .[$k] = true
-      else del(.[$k]) end
-    ' > "$tmp" 2> /dev/null || status=$?
-  else
-    printf '%s' "$before" | python3 -c "$py_edit_top" "$key" "$op" > "$tmp" 2> /dev/null || status=$?
-  fi
-  if [ "$status" -ne 0 ]; then
-    rm -f "$tmp"
-    return 2
-  fi
-  commit_if_unchanged "$file" "$tmp" "$before" || return 3
 }
 
 # Drop session files, and temp files left by an interrupted write, untouched for
