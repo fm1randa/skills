@@ -50,7 +50,7 @@ The Language Profile every session follows when it has no Session Lock of its ow
 _Avoid_: global language, fallback
 
 **Session Lock**:
-A per-session file, under `sessions/` in the skill's state root (`~/.config/output-language`), that overrides the Default Profile for that session only. It holds one of three states: a Language Profile, an ad hoc instruction, or `disabled` (output-language off, the default ignored too). No file means the session follows the Default Profile — including a file that holds nothing but the attachment fingerprint.
+A per-session file, under `sessions/` in the skill's state root (`~/.config/output-language`), that overrides the Default Profile for that session only. It holds one of three states: a Language Profile, an ad hoc instruction, or `disabled` (output-language off, the default ignored too). No file means the session follows the Default Profile. Written by `/output-language` and Aidiom, never by the Reminder hook; a lock from an earlier version may still hold an `attachmentsRequestedFor` key, which does not change its state.
 _Avoid_: override, pin
 
 **Pause**:
@@ -58,7 +58,7 @@ The state in which the Reminder hook does nothing in any session, whatever its S
 _Avoid_: global off, kill switch, disable all
 
 **Attachment**:
-A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session and attachment set, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool.
+A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session and attachment set, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool. What was asked is recorded as a fingerprint (the profile id and its attachment paths) in `sessions/<session-id>.asked`, a file only the Reminder hook writes.
 _Avoid_: reference, context file
 
 **Reminder hook**:

@@ -1,8 +1,9 @@
 # Setup: state files and the reminder hook
 
 The skill has two halves. A **file contract** under `~/.config/output-language`
-holds the Default Profile, the named Language Profiles and one Session Lock per
-session; an always-on **Reminder hook** (`scripts/remind.sh`) reads those files
+holds the Default Profile, the named Language Profiles, one Session Lock per
+session that overrides the default, and one attachment fingerprint per session that was asked to read
+attachments; an always-on **Reminder hook** (`scripts/remind.sh`) reads those files
 every turn and re-injects the effective instruction, so the language holds even
 when a foreign-language skill loads into context. `/output-language`
 (`scripts/lock.sh`) only writes this session's lock file.
@@ -63,15 +64,29 @@ That is why `/output-language default` deletes the file instead of writing
 something, and why `off` — which must also ignore the default — needs a state of
 its own.
 
-The hook may add `"attachmentsRequestedFor": "<fingerprint>"` to any of them, and
-creates a file holding only that key when an inheriting session has attachments
-to read. **A file with only a fingerprint still means "follows the default."**
+`lock.sh` and Aidiom write this file, each replacing it whole; the hook never
+writes it. An inheriting session therefore has no lock file at all, even when it
+has been asked to read attachments.
 
-Session files, and temp files left by an interrupted write, are deleted once they
-go untouched for more than seven days. The sweep runs after a write, never on a plain
-read — every `lock.sh` run, and in the hook only when it records an attachment
-request — so a machine where nothing ever changes never prunes. The current
-session's own file is always kept, however old.
+A lock written by an earlier version may still hold
+`"attachmentsRequestedFor": "<fingerprint>"`. The hook reads that key only while
+the session has no `.asked` file, so such a session is not asked twice; any other
+reader ignores it, and a lock holding only that key still means "follows the
+default."
+
+### `sessions/<session-id>.asked`
+
+The attachment fingerprint of the session (see
+[Attachments, read once](#attachments-read-once)), as plain text. Only the hook
+writes it, replacing it whole through a temp file and a rename; nothing else
+reads or deletes it. With one writer per file, a pin from `lock.sh` or Aidiom can
+never be lost to the hook recording a fingerprint at the same moment.
+
+Session files — locks and fingerprints — and temp files left by an interrupted
+write are deleted once they go untouched for more than seven days. The sweep runs
+after a write, never on a plain read — every `lock.sh` run, and in the hook only
+when it records an attachment request — so a machine where nothing ever changes
+never prunes. The current session's own files are always kept, however old.
 
 ### `paused`
 
@@ -136,9 +151,12 @@ file-reading tool, which keeps the PDF out of every turn's context.
 The ask happens **once per session and per attachment set**. The hook records a
 fingerprint — the profile id and its sorted attachment paths, joined by newlines
 rather than by punctuation, so that `["a|b"]` and `["a", "b"]` cannot fingerprint
-alike — and asks again only when the fingerprint changes: a different profile, or the same profile with an edited attachment list.
-Writing any lock through `lock.sh` rewrites the whole file and so drops the
-fingerprint, which is what makes a relock re-read the new guide.
+alike — in `sessions/<session-id>.asked`, and asks again only when the
+fingerprint changes: a different profile, or the same profile with an edited
+attachment list. A pin never touches the fingerprint and never needs to: the
+fingerprint holds the profile id, so switching to another profile no longer
+matches it. Pinning the profile a session already uses does not ask again; the
+Agent has already read those files in this session.
 
 Only a real prompt can trigger the ask; the `PostToolUse` reminder stays a
 reminder. A session with no id has nowhere to record the request, so the ask is

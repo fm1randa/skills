@@ -26,8 +26,10 @@
 # `off` writes { "disabled": true }, which the hook honors by staying silent and
 # ignoring the Default Profile (the app shows such a session as "off").
 #
-# Every write drops "attachmentsRequestedFor", so the Agent is asked to read the
-# new profile's attachments on the next turn.
+# None of these touch the attachment fingerprint (sessions/<sid>.asked), which
+# only remind.sh writes: it holds the profile id, so a switch to another profile
+# no longer matches it and the hook asks for the new attachments on the next
+# turn.
 set -euo pipefail
 
 # Bash-only path handling, no dirname, so the checks below are what reports a
@@ -100,9 +102,8 @@ file="$(lock_file)"
 mkdir -p "$(dirname "$file")"
 prune_stale_sessions
 
-# Write the whole file, so no key of an earlier state survives -- the fingerprint
-# included, which is why this builds the object instead of merging into it with
-# state.sh's json_set_top.
+# Write the whole file, so no key of an earlier state survives, a legacy
+# "attachmentsRequestedFor" included.
 write_lock() {
   local body="$1" tmp="${file}.tmp.$$"
   printf '{\n  %s\n}\n' "$body" > "$tmp"

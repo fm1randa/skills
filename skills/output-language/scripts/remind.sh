@@ -21,8 +21,9 @@
 # On UserPromptSubmit, when the effective profile carries attachments that this
 # session has not been asked to read yet, the message also lists them and asks
 # the Agent to read them. The fingerprint of what was asked is then written to
-# sessions/<sid>.json, creating the file when the session inherits the default
-# (a file with only a fingerprint still inherits).
+# sessions/<sid>.asked. This hook never writes the Session Lock, so a pin from
+# lock.sh or Aidiom can never be lost to it, and an inheriting session keeps
+# having no lock file at all.
 #
 # Usage: remind.sh <UserPromptSubmit|PostToolUse>
 set -euo pipefail
@@ -50,16 +51,10 @@ json_backend_available || exit 0
 event="${1:-UserPromptSubmit}"
 settings="$(settings_file)"
 lock="$(lock_file)"
+asked="$(asked_file)"
 
 profile_id=""
 instruction=""
-
-# The lock as it stood when this turn resolved. The fingerprint write below is a
-# compare-and-swap on it, so a relock that lands mid-turn is never overwritten.
-lock_snapshot=""
-if [ -n "$lock" ] && [ -f "$lock" ]; then
-  lock_snapshot="$(cat "$lock")"
-fi
 
 if [ -n "$lock" ] && [ -f "$lock" ]; then
   if [ "$(json_top "$lock" disabled)" = "true" ]; then
@@ -100,17 +95,16 @@ fi
 # Attachments are requested once per session and profile, and only on a real
 # prompt: a PostToolUse reminder must stay a reminder. Without a session id
 # there is nowhere to record the request, so the ask is skipped altogether.
-if [ "$event" = "UserPromptSubmit" ] && [ -n "$lock" ] && [ -n "$profile_id" ]; then
+if [ "$event" = "UserPromptSubmit" ] && [ -n "$asked" ] && [ -n "$profile_id" ]; then
   attachments="$(json_profile_attachments "$settings" "$profile_id")"
   if [ -n "$attachments" ]; then
     # Newline-joined, because a path can hold any other character: joining with
     # a punctuation mark would let ["a|b"] and ["a", "b"] fingerprint the same.
     fingerprint="${profile_id}"$'\n'"${attachments}"
-    if [ "$(json_top "$lock" attachmentsRequestedFor)" != "$fingerprint" ]; then
+    if [ "$(read_fingerprint "$asked" "$lock")" != "$fingerprint" ]; then
       msg="${msg}"$'\n\n'"This profile attaches the following files: ${attachments//$'\n'/, }. Read them with your file-reading tool before you reply, and follow them for the rest of the session. This is asked once per session."
-      # A refused write means a newer lock arrived during this turn: leave it
-      # alone. The next turn resolves against it and asks again if it must.
-      json_set_top "$lock" attachmentsRequestedFor "$fingerprint" "$lock_snapshot" || true
+      # A failed write only means the next turn asks again.
+      write_fingerprint "$asked" "$fingerprint" || true
       prune_stale_sessions
     fi
   fi
