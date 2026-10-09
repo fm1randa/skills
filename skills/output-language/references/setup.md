@@ -116,9 +116,10 @@ design are in ADR 0004.
 
 Both commands write only `settings.json` and keep every other key. The write is
 atomic: a temp file, then a rename. Neither command needs a session id.
-`pause` refuses with a non-zero exit when `settings.json` is missing or malformed,
-and then leaves the file as it was. `resume` with no Pause in place changes
-nothing and says so. Pausing twice is harmless.
+`pause` refuses with a non-zero exit when `settings.json` is missing, cannot be
+read or is malformed, says which, and then leaves the file as it was. `resume`
+with no Pause in place changes nothing and says so. Pausing a paused file writes
+nothing either, so a hand-formatted `settings.json` keeps its bytes.
 
 ## Attachments, read once
 
