@@ -911,6 +911,26 @@ test_pausing_twice_is_harmless() {
   teardown
 }
 
+test_pausing_a_paused_file_rewrites_nothing() {
+  setup "pause on a paused settings.json keeps it byte-for-byte"
+  local body word out status
+  # Hand formatting the backends would not reproduce, with the Pause written
+  # both ways the hook honors.
+  for body in '{"disabled":true,   "default":"en-ste","profiles":[]}' \
+    '{ "profiles": [], "disabled": "true" }'; do
+    mkdir -p "$root"
+    printf '%s' "$body" > "${root}/settings.json"
+    for word in pause pausar; do
+      out="$(bash "$lock" "$word" 2>&1)"
+      status=$?
+      assert_eq 0 "$status" "exit code for '${word}' on '${body}'"
+      assert_contains "$out" "paused" "output for '${word}' on '${body}'"
+      assert_eq "$body" "$(cat "${root}/settings.json")" "settings.json for '${word}' on '${body}'"
+    done
+  done
+  teardown
+}
+
 test_resume_removes_the_pause() {
   setup "resume and retomar remove the Pause and keep every other key"
   local expected word out status
@@ -956,7 +976,9 @@ test_resume_without_a_pause_changes_nothing() {
   assert_contains "$out" "no Pause" "output with no settings.json"
   assert_no_file "${root}/settings.json"
 
-  seed_settings
+  # Hand formatted, so a rewrite would show even if it kept every key.
+  mkdir -p "$root"
+  printf '%s' '{"default":"en-ste",   "profiles":[], "disabled": false}' > "${root}/settings.json"
   before="$(cat "${root}/settings.json")"
   out="$(bash "$lock" retomar 2>&1)"
   status=$?

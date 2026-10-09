@@ -60,6 +60,12 @@ case "$word" in
       echo "output-language: there is no ${settings} to pause; nothing changed." >&2
       exit 1
     fi
+    # Already paused, the way the hook reads it: rewriting would only reformat
+    # a file the user may have laid out by hand.
+    if [ "$(json_top "$settings" disabled)" = "true" ]; then
+      echo "output-language: already paused in every session. Run '/output-language resume' to put each one back."
+      exit 0
+    fi
     if ! json_edit_top "$settings" disabled true; then
       echo "output-language: ${settings} is not a valid JSON object, or changed while it was being written; nothing changed." >&2
       exit 1
