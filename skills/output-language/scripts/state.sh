@@ -224,7 +224,7 @@ json_profile_attachments() {
 # write. The function then leaves the file alone and fails, so the caller can
 # skip this turn; the next turn re-reads and merges onto what it finds.
 json_set_top() {
-  local file="$1" key="$2" value="$3" expected="${4-}" base tmp current status=0 dir
+  local file="$1" key="$2" value="$3" expected="${4-}" base tmp status=0 dir
   base="$expected"
   # An absent file merges into a fresh object.
   [ -n "$base" ] || base='{}'
@@ -241,12 +241,21 @@ json_set_top() {
     rm -f "$tmp"
     return 1
   fi
-  # The compare, as late as possible: everything above only prepared a temp file,
-  # so this and the rename are all that a concurrent writer can interleave with.
-  current=""
-  if [ -f "$file" ]; then
-    current="$(cat "$file")"
-  fi
+  commit_if_unchanged "$file" "$tmp" "$expected"
+}
+
+# commit_if_unchanged <file> <tmp> <expected>: the last step of every
+# compare-and-swap write. Rename the prepared <tmp> over <file> if <file> still
+# holds <expected> (empty for "the file does not exist"); otherwise remove <tmp>
+# and fail, leaving <file> as the other writer left it.
+#
+# The compare, as late as possible: the caller only prepared a temp file, so this
+# compare and the rename are all that a concurrent writer can interleave with. A
+# write that lands between the two is still overwritten; the window is that
+# small, not closed.
+commit_if_unchanged() {
+  local file="$1" tmp="$2" expected="$3" current
+  current="$(cat "$file" 2> /dev/null || true)"
   if [ "$current" != "$expected" ]; then
     rm -f "$tmp"
     return 1
@@ -281,9 +290,10 @@ sys.stdout.write("\n")
 # while it was being written, 4 when the mode is neither set nor delete.
 #
 # The write is atomic (a temp file, then a rename) and a compare-and-swap on
-# what was read, so an edit Aidiom saves in between is never overwritten.
+# what was read, so an edit Aidiom saves while the new content is prepared is
+# not overwritten; see commit_if_unchanged for the window that remains.
 json_edit_top() {
-  local file="$1" key="$2" op="$3" before tmp current status=0
+  local file="$1" key="$2" op="$3" before tmp status=0
   # Spelled out, so a typo fails here instead of silently deleting the key.
   case "$op" in
     set | delete) ;;
@@ -309,12 +319,7 @@ json_edit_top() {
     rm -f "$tmp"
     return 2
   fi
-  current="$(cat "$file" 2> /dev/null || true)"
-  if [ "$current" != "$before" ]; then
-    rm -f "$tmp"
-    return 3
-  fi
-  mv "$tmp" "$file"
+  commit_if_unchanged "$file" "$tmp" "$before" || return 3
 }
 
 # Drop session files, and temp files left by an interrupted write, untouched for
