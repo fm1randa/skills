@@ -58,7 +58,7 @@ The state in which the Reminder hook does nothing in any session, whatever its S
 _Avoid_: global off, kill switch, disable all
 
 **Attachment**:
-A file a Language Profile points to (typically a style-guide PDF) that the Agent is told to read once per session and attachment set, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool. What was asked is recorded as a fingerprint (the profile id and its attachment paths) in `sessions/<session-id>.asked`, a file only the Reminder hook writes.
+A file a Language Profile points to (typically a style-guide PDF), by an absolute or a `~/` path, that the Agent is told to read once per session and attachment set when it exists on the machine the hook runs on, and again when the session's profile or that profile's attachments change. Never inlined into the reminder; the Agent reads it with its own file-reading tool. What was asked is recorded as a fingerprint (the profile id and the resolved paths it listed) in `sessions/<session-id>.asked`, a file only the Reminder hook writes.
 _Avoid_: reference, context file
 
 **Reminder hook**:
