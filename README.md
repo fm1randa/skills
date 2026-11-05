@@ -27,6 +27,7 @@ The CLI installs a *copy* into your agent's skills directory rather than symlink
 | [recon](skills/recon/) | Gathers context on an Agidesk task by fanning out one researcher agent per source (Agidesk, Slack, Google Drive, and Datadog for bugs) into a single context brief. |
 | [open-pr](skills/open-pr/) | Opens a pull request with a short, high-level description following a fixed convention — confirms the base branch and links the related task as Fixes/Closes/Addresses. |
 | [feedback](skills/feedback/) | Drafts a short, low-jargon findings message in Brazilian Portuguese as raw HTML, following a fixed template with hyperlinked PRs. |
+| [use-flpm-ui](skills/use-flpm-ui/) | Teaches agents to build React UI with FLPM UI, the personal shadcn registry on Base UI: project setup, namespaced installs, Base UI API differences, visual rules and button hierarchy. |
 | [output-language](skills/output-language/) | Locks the reply language of a session instead of inferring it from the conversation. Named profiles and a default live in `~/.config/output-language`, so every session follows the default with no skill run; `/output-language <profile id \| free text>` pins one session, `default` makes it inherit again, `off` disables it. An always-on hook re-injects the choice every turn, so it survives loading other skills. Needs a [one-time hook setup](skills/output-language/references/setup.md). |
 
 ## Local development
