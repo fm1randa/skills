@@ -11,9 +11,16 @@
 #     settings.json
 #       { "default": "<profile id>",
 #         "profiles": [ { "id", "short", "label", "instruction",
-#                         "attachments": ["<absolute path>", ...] } ] }
+#                         "attachments": ["<path>", ...] } ] }
 #                                           written only by Aidiom; this skill
-#                                           reads it and never writes it.
+#                                           reads it and never writes it. An
+#                                           attachment is an absolute path
+#                                           ("/...") or a home-relative one
+#                                           ("~/...", resolved against $HOME
+#                                           where the hook runs). Only entries
+#                                           that resolve to an existing file on
+#                                           this machine are listed; any other
+#                                           entry is ignored.
 #     paused                                the Pause: while this file exists,
 #                                           remind.sh does nothing in any
 #                                           session; removing it resumes. Its
@@ -31,12 +38,13 @@
 #                                           text, written only by remind.sh once
 #                                           it has asked the Agent to read the
 #                                           effective profile's attachments. The
-#                                           fingerprint is the profile id and its
-#                                           sorted attachment paths joined by
-#                                           newlines, the one character a path
-#                                           cannot hold, so two different
-#                                           attachment sets can never produce the
-#                                           same fingerprint. A pin never needs
+#                                           fingerprint is the profile id and the
+#                                           sorted, resolved paths it listed,
+#                                           joined by newlines, the one
+#                                           character a path cannot hold, so
+#                                           two different attachment sets can
+#                                           never produce the same fingerprint.
+#                                           A pin never needs
 #                                           to touch it: a new profile gives a
 #                                           new fingerprint, and the hook asks
 #                                           again.
@@ -212,10 +220,14 @@ json_profile_exists() {
   [ -n "$found" ]
 }
 
-# json_profile_attachments <settings file> <profile id>: one path per line,
-# sorted, so the fingerprint does not depend on the order in settings.json.
+# json_profile_attachments <settings file> <profile id>: one resolved path per
+# line, sorted, so the fingerprint does not depend on the order in settings.json.
+#
+# settings.json is synced across machines with different homes, and an
+# attachment may not have been copied to this one: a missing file is left out
+# without a word, rather than handed to the Agent as a file it cannot open.
 json_profile_attachments() {
-  local file="$1" id="$2"
+  local file="$1" id="$2" path
   [ -f "$file" ] || return 0
   {
     if [ "$json_backend" = "jq" ]; then
@@ -226,7 +238,17 @@ json_profile_attachments() {
     else
       python3 -c "$py_attachments" "$file" "$id" 2> /dev/null || true
     fi
-  } | LC_ALL=C sort
+  } | while IFS= read -r path; do
+    # shellcheck disable=SC2088
+    case "$path" in
+      "~/"*) path="${HOME}/${path#"~/"}" ;;
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ -f "$path" ]; then
+      printf '%s\n' "$path"
+    fi
+  done | LC_ALL=C sort
 }
 
 # read_fingerprint <asked file> <lock file>: the fingerprint the hook last

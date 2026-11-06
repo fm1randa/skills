@@ -29,7 +29,7 @@ directory the hook happens to run in, giving every project its own state root.
       "short": "EN",
       "label": "English (STE)",
       "instruction": "American English, per ASD-STE100 Simplified Technical English",
-      "attachments": ["/Users/you/Documents/ASD-STE100-Issue9.pdf"]
+      "attachments": ["~/Documents/ASD-STE100-Issue9.pdf"]
     }
   ]
 }
@@ -38,8 +38,11 @@ directory the hook happens to run in, giving every project its own state root.
 `default` is the id of the Default Profile. `instruction` is an opaque
 natural-language string — language plus any style guide — injected verbatim, so
 it is the whole preference in one place. `short` is the two- or three-character
-badge Aidiom shows. `attachments` holds absolute paths and may be empty or
-absent.
+badge Aidiom shows. `attachments` may be empty or absent. Each entry is an
+absolute path (`/...`) or a home-relative one (`~/...`), which the hook resolves
+against `$HOME` on the machine it runs on, so one `settings.json` can be synced
+across machines whose homes differ. Any other entry (a relative path,
+`~user/...`, a non-string) is ignored.
 
 Aidiom is the only program that writes this file; the skill only reads it.
 
@@ -146,14 +149,17 @@ and says so.
 When the effective profile carries attachments, the `UserPromptSubmit` message
 also lists the paths and asks the Agent to read them before replying. The files
 are never inlined into the hook output; the Agent reads them with its own
-file-reading tool, which keeps the PDF out of every turn's context.
+file-reading tool, which keeps the PDF out of every turn's context. Only paths
+that resolve to an existing file on this machine are listed; a missing one is
+left out without a word, since the file may simply not have been copied to this
+machine. A profile with none left behaves as one with no attachments.
 
 The ask happens **once per session and per attachment set**. The hook records a
-fingerprint — the profile id and its sorted attachment paths, joined by newlines
-rather than by punctuation, so that `["a|b"]` and `["a", "b"]` cannot fingerprint
-alike — in `sessions/<session-id>.asked`, and asks again only when the
+fingerprint — the profile id and the sorted, resolved paths it listed, joined by
+newlines rather than by punctuation, so that `["/a|/b"]` and `["/a", "/b"]`
+cannot fingerprint alike — in `sessions/<session-id>.asked`, and asks again only when the
 fingerprint changes: a different profile, or the same profile with an edited
-attachment list. A pin never touches the fingerprint and never needs to: the
+attachment list or a listed file that appeared or went missing. A pin never touches the fingerprint and never needs to: the
 fingerprint holds the profile id, so switching to another profile no longer
 matches it. Pinning the profile a session already uses does not ask again; the
 Agent has already read those files in this session.
